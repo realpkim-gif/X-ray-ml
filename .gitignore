@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.idea/
+
+# Data and model outputs (too large for git, keep private)
+data/
+*.pt
+*.npy
+*.csv
