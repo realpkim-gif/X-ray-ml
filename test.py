@@ -13,3 +13,7 @@ targets = torch.tensor([1.0, 0.0, 1.0], dtype=torch.float32)
 # Calculate loss
 loss = criterion(logits, targets)
 print(f"Loss: {loss.item()}")
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+print(device)

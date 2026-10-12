@@ -21,7 +21,7 @@ transforms = timm.data.create_transform(**data_config, is_training=False)
 os.makedirs("data/features", exist_ok=True)  # create the output folder if missing
 
 for split in ["train", "val", "test"]:
-    input = pd.read_csv(f"data/processed/{split}.csv")["image_path"]  # image paths from preprocess.py
+    input = pd.read_csv(f"PreprocessedData/{split}.csv")["image_path"]  # image paths from preprocess.py
     output = []
 
     with torch.no_grad():  # no gradients needed, model is frozen

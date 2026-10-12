@@ -9,3 +9,7 @@ data/
 *.pt
 *.npy
 *.csv
+PreprocessedData/
+Fratura de membro*/
+human_data/
+results/
