@@ -8,7 +8,7 @@ So the model lives in a separate program, the API. The website sends it an X-ray
 
 ```
 Website (browser, JavaScript)                    API (Python, API.py)
-  user picks an X-ray  ── POST /predict + image ──►  runs ConvNeXt + DINO + heads + YOLO
+  user picks an X-ray  ── POST /predict + image ──►  runs ConvNeXt + DINO + the two heads
   shows answer + boxes ◄──── JSON answer ─────────  {"answer": "fracture", "confidence": 1.0, ...}
 ```
 
@@ -107,7 +107,6 @@ Loading takes seconds; doing it per request would make every answer slow.
 - ConvNeXt and DINOv2 (the frozen backbones)
 - the trained **CNN+DINO head** (`head.pt`) and **patch head** (`fracture_head.pt`)
 - the two **thresholds** the heads vote with (`thresholds.json`, `fracture_metrics.csv`), both chosen on val to catch 90% of fractures
-- the **best YOLO epoch**: `runs/detect/fracture_type_yolo/weights/best.pt` (`best.pt` = the best epoch on val; `last.pt` = simply the last one)
 
 **Part 2: `analyse(image)`, the pipeline for one X-ray.** It uses the same steps as training, so the models get
 the same kind of input they learned on:
@@ -115,32 +114,52 @@ the same kind of input they learned on:
 2. ConvNeXt makes the cnn vector [1, 1024]. **One** DINO pass gives the image vector [1, 1536] **and** the square vectors [1, 32, 32, 768].
 3. **Monte Carlo dropout:** the CNN+DINO head runs 5 times and the patch head 5 times, with dropout on, giving **10 votes**.
 4. Majority of the votes = **answer**; the share that agrees = **confidence**.
-5. If it's a fracture: the average heatmap gives the **rough (yellow) box**. Then the X-ray is cropped to that box + 15%,
-   and **YOLO** finds the **precise box** and the **fracture type** inside it.
+5. The average of the patch head's 5 heatmaps = the **heatmap** (always). If it's a fracture, the heatmap also gives
+   the **yellow box**.
+6. `draw_overlay()` paints the heatmap and/or the box on the **original upload**, depending on `show` (next section),
+   and turns the picture into text (base64) so it fits in the JSON answer.
 
 **Part 3: the endpoints.**
 - `GET /`: `{"status": "ok", "device": "cuda"}`, to check the API is alive.
-- `POST /predict`: receives the X-ray, refuses files over 15 MB (413) or files that aren't images (400),
-  runs `analyse()`, and returns:
+- `POST /predict?show=...`: receives the X-ray, refuses files over 15 MB (413) or files that aren't images (400),
+  runs `analyse()`, and returns JSON.
+
+### The `show` option: box, heatmap, or both
+
+`show` is a **query parameter**: an extra setting written in the address after a `?`.
+
+| Address | Picture you get back |
+|---|---|
+| `/predict?show=box` | the X-ray with **only the yellow box** |
+| `/predict?show=heatmap` | the X-ray with **only the red heatmap** |
+| `/predict?show=both` (or just `/predict`) | **both** |
+| `/predict?show=banana` | error **422**: FastAPI itself answers that only `box`, `heatmap` or `both` are allowed |
+
+That check costs one line, thanks to `Literal["box", "heatmap", "both"]` in `predict()`.
+
+The answer always contains everything; `show` only changes the **picture**:
 
 ```json
 {
   "answer": "fracture",
   "confidence": 1.0,
   "fracture_votes": "10 of 10",
-  "rough_box":   {"x1": 0.5312, "y1": 0.3438, "x2": 0.875,  "y2": 0.625},
-  "precise_box": {"x1": 0.7744, "y1": 0.5574, "x2": 0.9259, "y2": 0.6434},
-  "fracture_type": "epiphysis",
-  "type_confidence": 0.54,
+  "box": {"x1": 0.5312, "y1": 0.3438, "x2": 0.875, "y2": 0.625},
+  "heatmap": [[0.001, 0.002, ...], ...],
+  "show": "both",
+  "image": "data:image/png;base64,iVBORw0KGgo...",
   "disclaimer": "Not a diagnosis. Always have a veterinarian review the X-ray."
 }
 ```
 
-Boxes are **fractions (0-1)** of the image width/height, so the website can draw them at any display size:
-`left = x1 * shownWidth`, `top = y1 * shownHeight`, and so on. For a "normal" answer, the boxes and type are `null`.
+- `box`: **fractions (0-1)** of the image width/height, so it fits any display size. `null` when the answer is "normal".
+- `heatmap`: 32 rows of 32 fracture probabilities (0-1), one per square of the image. Always there, also for "normal".
+- `image`: the uploaded X-ray **at its own size**, with the chosen drawing on it, as a **data URL**
+  (a whole PNG picture written as text). Put it straight into an `<img>` tag.
+- Monte Carlo dropout is random, so sending the same image twice can move the box edge by one square (32 px).
 
-**Tested:** a fracture X-ray gave 10 of 10 votes and the same box as vote.py; a normal one gave 0 of 10;
-a text file gave a 400 error.
+**Tested:** `box`, `heatmap` and `both` each returned the right picture; `banana` gave a 422 error;
+a normal X-ray gave 0 of 10 votes; a text file gave a 400 error.
 
 ---
 
@@ -149,13 +168,15 @@ a text file gave a 400 error.
 ```javascript
 const API_URL = "http://127.0.0.1:8000";        // later: your hosted API address
 
-async function analyse(file) {                   // file = from <input type="file">
+async function analyse(file, show = "both") {   // file = from <input type="file">; show = "box" | "heatmap" | "both"
   const form = new FormData();
   form.append("file", file);                     // the name must be "file", like in API.py
-  const response = await fetch(`${API_URL}/predict`, { method: "POST", body: form });
-  if (!response.ok) throw new Error((await response.json()).detail);
-  return await response.json();                  // {answer, confidence, rough_box, ...}
+  const response = await fetch(`${API_URL}/predict?show=${show}`, { method: "POST", body: form });
+  if (!response.ok) throw new Error(JSON.stringify((await response.json()).detail));
+  return await response.json();                  // {answer, confidence, box, heatmap, image, ...}
 }
+
+// show the picture:  document.querySelector("#result-image").src = (await analyse(file, "box")).image;
 ```
 
 ---
@@ -167,11 +188,10 @@ async function analyse(file) {                   // file = from <input type="fil
 python -m uvicorn API:app --host 127.0.0.1 --port 8000
 ```
 Run it from this project folder: it needs `head.pt`, `fracture_head.pt`, `thresholds.json`, `fracture_metrics.csv`,
-`PreprocessedData/label_map.json` and the YOLO `best.pt`.
+and `PreprocessedData/label_map.json`.
 
 **On the internet (so the real website can use it):** the API must run on a server, e.g. Hugging Face Spaces or Render.
 - They give you an `https://...` address. Put it in `API_URL` in the website, and keep the github.io address in `ALLOWED_WEBSITES`.
 - Free servers usually have **no GPU**. The code then runs on CPU automatically (`device = "cpu"`), which is slower
   (several seconds per X-ray) but works.
 - The model files (`.pt`) are big and are not in git. Upload them to the server, or to a private Hugging Face model repo.
-- **Licenses:** Ultralytics YOLO is AGPL-3.0, so a public service using it must publish its source or buy a license.

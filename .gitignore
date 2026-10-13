@@ -11,7 +11,4 @@ ModelWeights/
 *.csv
 PreprocessedData/
 Fratura de membro*/
-human_data/
 results/
-runs/
-yolo_train_log*.txt

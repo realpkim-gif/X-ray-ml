@@ -2,7 +2,7 @@
 
 Private ML code for **Radiant**, a web app that looks at dog and cat X-rays and flags problems.
 This README explains **every part of the pipeline**, from raw images to the final answer, in plain language.
-If a word is new, check the [Glossary](#14-glossary) at the bottom.
+If a word is new, check the [Glossary](#13-glossary) at the bottom.
 
 ---
 
@@ -18,11 +18,10 @@ If a word is new, check the [Glossary](#14-glossary) at the bottom.
 8. [File by file: feature extraction](#8-file-by-file-feature-extraction)
 9. [File by file: the two heads](#9-file-by-file-the-two-heads)
 10. [File by file: scoring and voting](#10-file-by-file-scoring-and-voting)
-11. [The human-fracture YOLO side project](#11-the-human-fracture-yolo-side-project)
-12. [Every output file](#12-every-output-file)
-13. [Limitations and next steps](#13-limitations-and-next-steps)
-14. [Glossary](#14-glossary)
-15. [Credits and licenses](#15-credits-and-licenses)
+11. [Every output file](#11-every-output-file)
+12. [Limitations and next steps](#12-limitations-and-next-steps)
+13. [Glossary](#13-glossary)
+14. [Credits and licenses](#14-credits-and-licenses)
 
 ---
 
@@ -490,25 +489,7 @@ Uses the same settings as `FractureLocator.py` (`import FractureLocator as fl`).
 
 ---
 
-## 11. The human-fracture YOLO side project
-
-Plan: use a lot of **human** fracture X-rays to train a YOLO detector that draws precise boxes.
-
-- `combine_human.py` merges **FracAtlas** (4,083 images) and **GRAZPEDWRI-DX** (20,327 child wrist X-rays) into one
-  YOLO dataset with one class, `fracture`. It splits 70/15/15 **by patient**, converts GRAZ's 16-bit PNGs to normal
-  8-bit, and writes `data.yaml`.
-- `ExactLocator.py` trains an Ultralytics YOLO model on it (work in progress).
-- `yolo_metrics.py` scores a YOLO model per image (accuracy, precision, recall, F1, AUROC, ROC curve) and per box (mAP).
-
-Things to keep in mind:
-- **Human bones look different** from dog and cat bones, so a human-trained YOLO will likely need fine-tuning on the
-  400 animal outlines here.
-- **License:** Ultralytics YOLO is **AGPL-3.0**. Using it in a public web app means open-sourcing the backend,
-  or buying their license.
-
----
-
-## 12. Every output file
+## 11. Every output file
 
 | File / folder | Made by | What it is |
 |---|---|---|
@@ -527,7 +508,7 @@ Things to keep in mind:
 
 ---
 
-## 13. Limitations and next steps
+## 12. Limitations and next steps
 
 **Limitations**
 - **One hospital, one scanner.** A different clinic's X-rays may score noticeably worse. Not measured yet.
@@ -546,7 +527,7 @@ Things to keep in mind:
 
 ---
 
-## 14. Glossary
+## 13. Glossary
 
 | Word | Meaning |
 |---|---|
@@ -582,9 +563,7 @@ Things to keep in mind:
 
 ---
 
-## 15. Credits and licenses
+## 14. Credits and licenses
 
 - **Fratura de membro** dataset by RodrigoDoutorado on Roboflow Universe, **CC BY 4.0** (credit required).
 - **DINOv2** (Meta), Apache-2.0. **ConvNeXt-V2** via timm.
-- **FracAtlas** and **GRAZPEDWRI-DX**: CC BY 4.0 (see `combine_human.py`).
-- **Ultralytics YOLO**: AGPL-3.0.

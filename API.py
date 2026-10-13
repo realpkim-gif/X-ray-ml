@@ -4,7 +4,7 @@
 # What is an API?  A program that waits for requests from other programs (here: your
 # website) and sends back answers. The website sends an X-ray image, this file runs the
 # whole model pipeline on it, and sends back JSON (text the website can read), e.g.
-#   {"answer": "fracture", "confidence": 0.9, "box": {...}, "fracture_type": "metaphysis"}
+#   {"answer": "fracture", "confidence": 0.9, "box": {...}}
 #
 # How to start it (from the project folder, in a terminal):
 #   python -m uvicorn API:app --host 127.0.0.1 --port 8000
@@ -20,20 +20,25 @@
 #   4. CNN+DINO head (head.pt) 5x with dropout ON  -> 5 votes   (Monte Carlo dropout, like vote.py)
 #      patch head (fracture_head.pt) 5x            -> 5 votes + 5 heatmaps
 #   5. majority of the 10 votes = answer, share agreeing = confidence
-#   6. average heatmap -> rough yellow box         (like FractureLocator.py)
-#   7. YOLO (best.pt) inside the yellow box        -> precise box + fracture type (like exact_types.py)
+#   6. average heatmap -> yellow box               (like FractureLocator.py)
+#   7. draw the heatmap and/or the box on the ORIGINAL upload, as the caller asked:
+#        POST /predict?show=box       only the yellow box
+#        POST /predict?show=heatmap   only the red heatmap
+#        POST /predict?show=both      both (the default)
 # ======================================================================================
 
 # ---------- imports: code from other libraries / files that we use ----------
 import io                                    # io.BytesIO turns the uploaded bytes into a "file" PIL can open
+import base64                                # turns the finished picture (bytes) into text, so it fits inside JSON
+from typing import Literal                   # Literal["a", "b"] = "only these exact values are allowed"
+import numpy as np                           # to turn the heatmap into an image
 import json                                  # to read thresholds.json
 import pandas as pd                          # to read fracture_metrics.csv
 import torch                                 # PyTorch: runs the models
 import timm                                  # library that has the ConvNeXt model
-from PIL import Image                        # opens and resizes images
+from PIL import Image, ImageDraw             # opens/resizes images; ImageDraw draws the box
 from transformers import AutoImageProcessor, AutoModel   # library that has the DINOv2 model
-from ultralytics import YOLO                 # library that has YOLO
-from fastapi import FastAPI, File, UploadFile, HTTPException   # the API library (explained below)
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query   # the API library (explained below)
 from fastapi.middleware.cors import CORSMiddleware            # lets the website (another address) call us
 import main                                  # our main.py: Head (CNN+DINO head), label_map, device
 import FractureLocator as fl                 # our FractureLocator.py: PatchHead, find_box, image_scores
@@ -42,11 +47,10 @@ import FractureLocator as fl                 # our FractureLocator.py: PatchHead
 # ---------- settings (CAPITALS = values you might want to change) ----------
 PASSES = 5                                   # Monte Carlo dropout passes per head (5 + 5 = 10 votes)
 DINO_SIZE = 448                              # same as DINO.py / DINO_patches.py
-YOLO_WEIGHTS = "runs/detect/fracture_type_yolo/weights/best.pt"   # best YOLO epoch (best.pt, not last.pt)
-YOLO_SIZE = 640                              # same as ExactLocator.py training
-YOLO_MIN_CONF = 0.25                         # ignore YOLO boxes below this confidence
-CROP_MARGIN = 0.15                           # same margin as combine_human.py / exact_types.py
 MAX_UPLOAD_MB = 15                           # refuse files bigger than this (protects the server)
+HEATMAP_STRENGTH = 0.6                       # at most 60% red over a pixel, so the bone stays visible
+BOX_COLOR = (255, 255, 0)                    # yellow (red, green, blue: 0-255 each)
+HEAT_COLOR = (255, 0, 0)                     # red
 # Which websites may call this API. A browser blocks calls from other addresses unless we list them here.
 ALLOWED_WEBSITES = [
     "https://realpkim-gif.github.io",        # your GitHub Pages site
@@ -88,9 +92,6 @@ with open("thresholds.json") as f:
     cnn_dino_threshold = json.load(f)["fracture"]
 patch_threshold = float(pd.read_csv("fracture_metrics.csv")["threshold"][0])
 
-# YOLO: precise box + fracture type inside the yellow box
-yolo_model = YOLO(YOLO_WEIGHTS)
-
 print("models loaded on", device)
 
 
@@ -106,8 +107,41 @@ def to_fraction(box, width, height):
             "x2": round(box[2] / width, 4), "y2": round(box[3] / height, 4)}
 
 
-def analyse(image):
-    # image = PIL image as uploaded. Returns a dictionary (becomes the JSON answer).
+def draw_overlay(original, heatmap, box, show):
+    # Draws the result on the ORIGINAL upload (its own size, not 1024 x 1024) and returns it as text.
+    #   original = the uploaded X-ray (PIL image)
+    #   heatmap  = [32, 32] numpy grid of fracture probabilities 0-1
+    #   box      = {"x1": ..., "y1": ..., "x2": ..., "y2": ...} as 0-1 fractions, or None (normal)
+    #   show     = "box", "heatmap" or "both"
+    picture = original.convert("RGB")                           # a copy we can paint on, 3 channels
+    width, height = picture.size
+
+    if show == "heatmap" or show == "both":
+        # 1. the 32 x 32 grid -> a gray image (0-255), stretched smoothly (BILINEAR) to the X-ray's size
+        heat = Image.fromarray((heatmap * 255).astype(np.uint8)).resize((width, height), Image.BILINEAR)
+        # 2. how strongly each pixel turns red: probability x HEATMAP_STRENGTH (so 1.0 -> 60% red)
+        heat = heat.point(lambda value: int(value * HEATMAP_STRENGTH))
+        # 3. Image.composite(A, B, mask): where the mask is bright take A (red), where dark keep B (the X-ray)
+        red = Image.new("RGB", picture.size, HEAT_COLOR)
+        picture = Image.composite(red, picture, heat)
+
+    if (show == "box" or show == "both") and box is not None:  # no box for "normal" answers
+        # fractions -> pixels of THIS image, then draw the rectangle
+        corners = [box["x1"] * width, box["y1"] * height, box["x2"] * width, box["y2"] * height]
+        line_width = max(2, round(min(width, height) / 200))    # thicker line on bigger images
+        ImageDraw.Draw(picture).rectangle(corners, outline=BOX_COLOR, width=line_width)
+
+    # picture -> PNG bytes in memory -> base64 text -> a "data URL" the website can use directly:
+    #   <img src="data:image/png;base64,iVBORw0KG...">
+    buffer = io.BytesIO()
+    picture.save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def analyse(image, show):
+    # image = PIL image as uploaded, show = "box" / "heatmap" / "both".
+    # Returns a dictionary (becomes the JSON answer).
+    original = image                         # keep the upload as it is, to draw on at the end
 
     # --- step 1: same size as training ---
     image = image.convert("RGB").resize((1024, 1024))   # gray X-ray -> 3 channels, 1024 x 1024
@@ -147,35 +181,24 @@ def analyse(image):
         "answer": "fracture" if is_fracture else "normal",
         "confidence": round(confidence, 2),
         "fracture_votes": f"{sum(votes)} of {len(votes)}",
-        "rough_box": None,                   # None becomes null in JSON = "no box"
-        "precise_box": None,
-        "fracture_type": None,
-        "type_confidence": None,
+        "box": None,                         # None becomes null in JSON = "no box"
+        "heatmap": None,                     # filled below
+        "show": show,
+        "image": None,                       # filled below
         "disclaimer": "Not a diagnosis. Always have a veterinarian review the X-ray.",
     }
-    if not is_fracture:
-        return result                        # normal: no boxes, done
 
-    # --- step 6: rough yellow box from the average heatmap ---
-    mean_heatmap = torch.stack(heatmaps).mean(0).numpy()       # [32, 32]
-    x1, y1, x2, y2 = fl.find_box(mean_heatmap)                  # pixels of the 1024 x 1024 image
-    result["rough_box"] = to_fraction([x1, y1, x2, y2], 1024, 1024)
+    # --- step 6: heatmap (ALWAYS, also for "normal") and yellow box (only for "fracture") ---
+    mean_heatmap = torch.stack(heatmaps).mean(0).numpy()       # average of the 5 passes, [32, 32]
+    result["heatmap"] = mean_heatmap.round(3).tolist()         # 32 rows of 32 numbers, so the website could draw it too
+    if is_fracture:
+        x1, y1, x2, y2 = fl.find_box(mean_heatmap)              # pixels of the 1024 x 1024 image
+        result["box"] = to_fraction([x1, y1, x2, y2], 1024, 1024)
 
-    # --- step 7: YOLO inside the yellow box (+ margin), like exact_types.py ---
-    pad_x = (x2 - x1) * CROP_MARGIN
-    pad_y = (y2 - y1) * CROP_MARGIN
-    cx1, cy1 = max(0, round(x1 - pad_x)), max(0, round(y1 - pad_y))
-    cx2, cy2 = min(1024, round(x2 + pad_x)), min(1024, round(y2 + pad_y))
-    crop = image.crop((cx1, cy1, cx2, cy2))
-    found = yolo_model.predict(crop, imgsz=YOLO_SIZE, conf=YOLO_MIN_CONF, verbose=False)[0]
-    if len(found.boxes) > 0:
-        best = int(found.boxes.conf.argmax())                   # YOLO's most confident box
-        bx1, by1, bx2, by2 = [float(v) for v in found.boxes.xyxy[best]]   # pixels inside the crop
-        precise = [bx1 + cx1, by1 + cy1, bx2 + cx1, by2 + cy1]  # move back to the 1024 image
-        result["precise_box"] = to_fraction(precise, 1024, 1024)
-        result["fracture_type"] = found.names[int(found.boxes.cls[best])]
-        result["type_confidence"] = round(float(found.boxes.conf[best]), 2)
+    # --- step 7: the picture the caller asked for ---
+    result["image"] = draw_overlay(original, mean_heatmap, result["box"], show)
     return result
+
 
 
 # ======================================================================================
@@ -187,7 +210,8 @@ def analyse(image):
 # ======================================================================================
 
 app = FastAPI(title="Radiant fracture API",
-              description="Upload a dog or cat limb X-ray: fracture yes/no, confidence, boxes, type.")
+              description="Upload a dog or cat limb X-ray: fracture yes/no, confidence, box, heatmap, "
+                          "and the X-ray with the box and/or heatmap drawn on it.")
 
 # CORS: browsers only let a web page call a DIFFERENT address (our API) if that address says it's allowed.
 # Your website (github.io) and this API (another address) are different, so we list the website here.
@@ -206,9 +230,14 @@ def health():
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(file: UploadFile = File(...),
+                  show: Literal["box", "heatmap", "both"] = Query("both")):
     # The website sends the X-ray here as a "multipart" upload (a normal file upload).
     # UploadFile = the uploaded file. File(...) = it is required (... means "must be given").
+    # show = what to draw on the returned picture. It comes from the address ("query parameter"):
+    #   /predict?show=box   /predict?show=heatmap   /predict?show=both   (just /predict = "both")
+    #   Literal[...] makes FastAPI refuse anything else by itself
+    #   (error 422, with a message saying which values are allowed).
     # async = FastAPI can keep accepting other requests while this one waits for the upload to arrive.
 
     data = await file.read()                 # the raw bytes of the file
@@ -222,4 +251,4 @@ async def predict(file: UploadFile = File(...)):
         # 400 = "bad request": the client sent something we can't use
         raise HTTPException(status_code=400, detail="That file is not an image we can open")
 
-    return analyse(image)                    # FastAPI turns the dictionary into JSON automatically
+    return analyse(image, show)              # FastAPI turns the dictionary into JSON automatically
