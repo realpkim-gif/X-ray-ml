@@ -5,7 +5,7 @@ __pycache__/
 .idea/
 
 # Data and model outputs (too large for git, keep private)
-data/
+ModelWeights/
 *.pt
 *.npy
 *.csv
@@ -13,3 +13,5 @@ PreprocessedData/
 Fratura de membro*/
 human_data/
 results/
+runs/
+yolo_train_log*.txt

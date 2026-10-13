@@ -10,7 +10,8 @@ model = timm.create_model(
     pretrained=True,
     num_classes=0,  # remove classifier -> outputs one 1024 feature vector per image
 )
-model = model.eval()  # frozen: inference mode
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.eval().to(device)  # frozen: inference mode, on the gpu if there is one
 for p in model.parameters():
     p.requires_grad = False  # frozen: weights never update
 
@@ -18,7 +19,7 @@ for p in model.parameters():
 data_config = timm.data.resolve_model_data_config(model)
 transforms = timm.data.create_transform(**data_config, is_training=False)
 
-os.makedirs("data/features", exist_ok=True)  # create the output folder if missing
+os.makedirs("ModelWeights/features", exist_ok=True)  # create the output folder if missing
 
 for split in ["train", "val", "test"]:
     input = pd.read_csv(f"PreprocessedData/{split}.csv")["image_path"]  # image paths from preprocess.py
@@ -27,7 +28,7 @@ for split in ["train", "val", "test"]:
     with torch.no_grad():  # no gradients needed, model is frozen
         for i in input:
             img = Image.open(i).convert("RGB")  # gray X-ray -> 3 channels
-            output.append(model(transforms(img).unsqueeze(0)))  # unsqueeze single image into batch of 1
+            output.append(model(transforms(img).unsqueeze(0).to(device)).cpu())  # unsqueeze single image into batch of 1
 
     output = torch.cat(output).numpy()  # [num_images, 1024]
-    np.save(f"data/features/cnn_{split}.npy", output)  # row i = image i of {split}.csv
+    np.save(f"ModelWeights/features/cnn_{split}.npy", output)  # row i = image i of {split}.csv

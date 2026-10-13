@@ -12,7 +12,7 @@ train_cnn, train_dino, train_targets = load("train")   # load gives cnn too, we 
 val_cnn, val_dino, val_targets = load("val")
 test_cnn, test_dino, test_targets = load("test")
 
-# hands out the train data in shuffled batches: (dino, targets) per batch
+# hands out the train ModelWeights in shuffled batches: (dino, targets) per batch
 train_loader = DataLoader(TensorDataset(train_dino, train_targets),
                           batch_size=BATCH_SIZE, shuffle=True)
 

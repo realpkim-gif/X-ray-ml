@@ -22,8 +22,8 @@ class_names = sorted(label_map, key=label_map.get)   # names in number order
 
 
 def load(split):
-  cnn = torch.tensor(np.load(f"data/features/cnn_{split}.npy"), dtype=torch.float32)    # [N, 1024]
-  dino = torch.tensor(np.load(f"data/features/dino_{split}.npy"), dtype=torch.float32)  # [N, 1536]
+  cnn = torch.tensor(np.load(f"ModelWeights/features/cnn_{split}.npy"), dtype=torch.float32)    # [N, 1024]
+  dino = torch.tensor(np.load(f"ModelWeights/features/dino_{split}.npy"), dtype=torch.float32)  # [N, 1536]
 
   # targets: one row per image, a 1 for every finding it has. "1|5" -> [0, 1, 0, 0, 0, 1, 0]
   label_ids = pd.read_csv(f"{DATA}/{split}.csv", dtype={"label_ids": str})["label_ids"]
@@ -148,7 +148,7 @@ if __name__ == "__main__":
   val_cnn, val_dino, val_targets = load("val")
   test_cnn, test_dino, test_targets = load("test")
 
-  # hands out the train data in shuffled batches: (cnn, dino, targets) per batch
+  # hands out the train ModelWeights in shuffled batches: (cnn, dino, targets) per batch
   train_loader = DataLoader(TensorDataset(train_cnn, train_dino, train_targets),
                             batch_size=BATCH_SIZE, shuffle=True)
 
@@ -199,3 +199,4 @@ if __name__ == "__main__":
 
   with torch.no_grad():                         # no gradients needed for predicting
     evaluate("", model(val_cnn, val_dino), val_targets, model(test_cnn, test_dino), test_targets)
+
