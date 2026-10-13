@@ -16,9 +16,9 @@ import numpy as np
 #   0 = healthy square, 1 = square fully inside the fracture, 0.5 = half inside
 #
 # Files written for each split (train / val / test):
-#   data/features/patches_{split}.npy   [N, 32, 32, 768]
-#   data/features/masks_{split}.npy     [N, 32, 32]
-#   data/features/patches_{split}.csv   row i = image i of the two .npy files
+#   ModelWeights/features/patches_{split}.npy   [N, 32, 32, 768]
+#   ModelWeights/features/masks_{split}.npy     [N, 32, 32]
+#   ModelWeights/features/patches_{split}.csv   row i = image i of the two .npy files
 
 DATA = "PreprocessedData"   # where preprocess.py writes the csvs
 SIZE = 448                  # image size for DINO, must be a multiple of 14
@@ -33,7 +33,7 @@ processor = AutoImageProcessor.from_pretrained('facebook/dinov2-base',
                                                size={"height": SIZE, "width": SIZE}, do_center_crop=False)
 model = AutoModel.from_pretrained('facebook/dinov2-base').to(device).eval()   # frozen: inference mode
 
-os.makedirs("data/features", exist_ok=True)  # create the output folder if missing
+os.makedirs("ModelWeights/features", exist_ok=True)  # create the output folder if missing
 
 
 def read_outlines(json_path):
@@ -126,11 +126,11 @@ for split in splits:
     # save everything for this split
     patches = torch.stack(patches).numpy()      # [N, 32, 32, 768]
     masks = np.stack(masks)                     # [N, 32, 32]
-    np.save(f"data/features/patches_{split}.npy", patches)
-    np.save(f"data/features/masks_{split}.npy", masks)
+    np.save(f"ModelWeights/features/patches_{split}.npy", patches)
+    np.save(f"ModelWeights/features/masks_{split}.npy", masks)
 
     info = pd.DataFrame(rows, columns=["image_path", "original", "animal", "label", "flipped"])
-    info.to_csv(f"data/features/patches_{split}.csv", index=False)
+    info.to_csv(f"ModelWeights/features/patches_{split}.csv", index=False)
 
     fracture_count = (info["label"] == "fracture").sum()
     print(split, patches.shape, "fracture images:", fracture_count)

@@ -15,8 +15,8 @@ from main import make_scheduler, device, TARGET_RECALL   # same lr schedule and 
 # Squares outside the outline in fracture images, and all squares of normal images, are "healthy".
 # So the head has to learn what a fracture looks like, not which kind of X-ray it is.
 
-FEATURES = "data/features"
-VIEWS = "data/views.csv"    # body / limb / other_source per image (from clustering, checked by eye)
+FEATURES = "ModelWeights/features"
+VIEWS = "ModelWeights/views.csv"    # body / limb / other_source per image (from clustering, checked by eye)
 EPOCHS = 40
 BATCH_SIZE = 16
 LR = 0.001
@@ -96,9 +96,13 @@ def view_weights(data):
     return torch.tensor(weights, dtype=torch.float32)
 
 
-def predict_all(model, patches):
+def predict_all(model, patches, mc_dropout=False):
     # square scores for every image, 64 images at a time -> [N, 32, 32] (on the cpu)
-    model.eval()                                           # dropout off
+    # mc_dropout=True keeps dropout ON, so every call gives a slightly different answer (see combine.py)
+    if mc_dropout:
+        model.train()
+    else:
+        model.eval()                                       # dropout off
     scores = []
     with torch.no_grad():
         for start in range(0, len(patches), 64):
@@ -233,7 +237,7 @@ def save_heatmap(path, square_probs, box, out_path):
 
 
 def train_head(train_data, train_patches, train_masks, train_labels, val=None, save_path=None):
-    # trains one PatchHead. val = (data, patches, masks, labels): then the epoch with the best
+    # trains one PatchHead. val = (ModelWeights, patches, masks, labels): then the epoch with the best
     # view-averaged val AUROC is kept (saved to save_path). Without val the last epoch is kept.
     train_weights = view_weights(train_data)
     model = PatchHead(train_patches.shape[-1]).to(device)

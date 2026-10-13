@@ -5,7 +5,7 @@ import numpy as np
 import FractureLocator as fl   # same settings, model and scores as FractureLocator.py
 
 # Honest score for FractureLocator. val/test only have ~10 animals each, so one split is very noisy.
-# 5-fold cross-validation BY ANIMAL on all data (train + val + test together):
+# 5-fold cross-validation BY ANIMAL on all ModelWeights (train + val + test together):
 #   split the animals into 5 groups -> train on 4 groups, score the 5th -> repeat 5 times.
 #   every animal is scored once, always by a head that never saw that animal.
 # Mirrored copies are only used for training; scores are measured on the real images.

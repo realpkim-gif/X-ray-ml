@@ -5,8 +5,8 @@ images to disk. `train_transforms()` can additionally augment on the fly during
 training (a different random version every epoch).
 
     from augmentation import XrayDataset, train_transforms, eval_transforms
-    train_ds = XrayDataset("data/processed/train.csv", num_classes, train_transforms())
-    val_ds   = XrayDataset("data/processed/val.csv",   num_classes, eval_transforms())
+    train_ds = XrayDataset("ModelWeights/processed/train.csv", num_classes, train_transforms())
+    val_ds   = XrayDataset("ModelWeights/processed/val.csv",   num_classes, eval_transforms())
 
 Preview what the augmentation does to one image: set the path at the bottom and run
     python augmentation.py
@@ -78,7 +78,7 @@ class XrayDataset(Dataset):
 
 if __name__ == "__main__":
     # preview: save 8 augmented versions of one image side by side
-    img = Image.open("data/raw/example.png").convert("RGB")
+    img = Image.open("ModelWeights/raw/example.png").convert("RGB")
     tf = train_transforms(224)
     mean, std = torch.tensor(MEAN).view(3, 1, 1), torch.tensor(STD).view(3, 1, 1)
     grid = Image.new("RGB", (224 * 8, 224))

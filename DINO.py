@@ -15,7 +15,7 @@ processor = AutoImageProcessor.from_pretrained('facebook/dinov2-base',
                                                size={"height": SIZE, "width": SIZE}, do_center_crop=False)
 model = AutoModel.from_pretrained('facebook/dinov2-base').to(device).eval()   # frozen: inference mode
 
-os.makedirs("data/features", exist_ok=True)  # create the output folder if missing
+os.makedirs("ModelWeights/features", exist_ok=True)  # create the output folder if missing
 
 for split in ["train", "val", "test"]:
     input = pd.read_csv(f"{DATA}/{split}.csv")["image_path"]  # image paths from preprocess.py
@@ -31,5 +31,5 @@ for split in ["train", "val", "test"]:
             output.append(torch.cat([cls, patches], dim=1).cpu())   # [1, 1536]
 
     output = torch.cat(output).numpy()  # [num_images, 1536]
-    np.save(f"data/features/dino_{split}.npy", output)  # row i = image i of {split}.csv
+    np.save(f"ModelWeights/features/dino_{split}.npy", output)  # row i = image i of {split}.csv
     print(split, output.shape)

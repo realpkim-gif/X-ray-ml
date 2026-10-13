@@ -10,7 +10,7 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_s
 #   from ultralytics import YOLO
 #   from yolo_metrics import yolo_metrics
 #   model = YOLO("runs/detect/bone_fracture_yolo/weights/best.pt")
-#   yolo_metrics(model, "BoneData/BoneFractureYolo8/data.yaml", "BoneData/BoneFractureYolo8/test/images", "test")
+#   yolo_metrics(model, "BoneData/BoneFractureYolo8/ModelWeights.yaml", "BoneData/BoneFractureYolo8/test/images", "test")
 
 
 def yolo_metrics(model, data_yaml, image_folder, split="test", threshold=0.25, imgsz=1024):
@@ -109,4 +109,4 @@ def yolo_metrics(model, data_yaml, image_folder, split="test", threshold=0.25, i
 if __name__ == "__main__":
     from ultralytics import YOLO
     model = YOLO("PATH/TO/runs/detect/YOUR_RUN/weights/best.pt")   # your trained detect model
-    yolo_metrics(model, "human_data/combined/data.yaml", "human_data/combined/images/test", "test")
+    yolo_metrics(model, "human_data/combined/ModelWeights.yaml", "human_data/combined/images/test", "test")
