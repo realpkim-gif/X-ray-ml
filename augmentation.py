@@ -63,7 +63,8 @@ class XrayDataset(Dataset):
         self.paths = df[image_col].tolist()
         self.targets = torch.zeros(len(df), num_classes)
         for row, ids in enumerate(df["label_ids"]):
-            self.targets[row, [int(i) for i in ids.split("|")]] = 1.0
+            for number in ids.split("|"):          # "1|5" -> labels 1 and 5
+                self.targets[row, int(number)] = 1.0
         self.transform = transform
 
     def __len__(self):

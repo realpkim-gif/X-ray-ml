@@ -195,3 +195,45 @@ and `PreprocessedData/label_map.json`.
 - Free servers usually have **no GPU**. The code then runs on CPU automatically (`device = "cpu"`), which is slower
   (several seconds per X-ray) but works.
 - The model files (`.pt`) are big and are not in git. Upload them to the server, or to a private Hugging Face model repo.
+
+---
+
+## 7. Putting it online with Hugging Face Spaces (so your laptop can be off)
+
+A **Space** is a free cloud computer from Hugging Face that runs your API 24/7 (2 CPU cores, 16 GB memory, no GPU).
+It goes to sleep after ~48 hours without visitors; the next request wakes it up (takes a minute or two).
+Without a GPU each X-ray takes roughly 5-15 seconds.
+
+The `deploy/` folder has what the Space needs:
+
+| File | What it does |
+|---|---|
+| `deploy/Dockerfile` | recipe for the server: install Python + libraries, then start `uvicorn API:app` on port 7860 |
+| `deploy/requirements.txt` | the libraries, with the CPU-only PyTorch (the free Space has no GPU) |
+| `deploy/README.md` | the header tells Hugging Face "this is a Docker app on port 7860" |
+| `deploy/make_space.py` | copies all of that **plus** the code and model files into one folder, `hf_space/` |
+
+### Steps
+
+1. **Make an account** at https://huggingface.co (free).
+2. **Create the Space:** click your profile picture -> **New Space**.
+   - Space name: e.g. `radiant-api`
+   - SDK: **Docker** -> template **Blank**
+   - Hardware: **CPU basic (free)**
+   - Visibility: **Public** (simplest; anyone can see the code and model files)
+   - Click **Create Space**.
+3. **Build the upload folder** on your laptop, from the project folder:
+   ```bash
+   python deploy/make_space.py
+   ```
+4. **Upload:** in the Space, open **Files** -> **+ Contribute** -> **Upload files**, drag in **everything inside `hf_space/`**
+   (including the `PreprocessedData` folder), then click **Commit changes to main**.
+5. **Wait for the build.** The Space shows "Building" (installing PyTorch takes several minutes), then "Running".
+   If it fails, click **Logs** to see why.
+6. **Test it:** open `https://<your-username>-radiant-api.hf.space/docs` and upload an X-ray.
+7. **Point the website at it:** in the website's JavaScript, set
+   `const API_URL = "https://<your-username>-radiant-api.hf.space";`
+
+**After retraining a model:** run `python deploy/make_space.py` again and upload the changed files. The Space rebuilds by itself.
+
+**Privacy:** visitors' X-rays are sent to Hugging Face's servers. Say so on the website, next to the "not a diagnosis" note.

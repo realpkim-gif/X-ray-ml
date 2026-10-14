@@ -43,7 +43,13 @@ for i, animal in enumerate(fracture_animals):
     fold_of[animal] = i % FOLDS
 for i, animal in enumerate(normal_animals):
     fold_of[animal] = i % FOLDS
-data["fold"] = data["animal"].map(fold_of)   # other-source animals get no fold (NaN) -> always training
+folds = []
+for animal in data["animal"]:
+    if animal in fold_of:
+        folds.append(fold_of[animal])
+    else:
+        folds.append(float("nan"))           # other-source animals get no fold -> always training
+data["fold"] = folds
 
 all_scores = torch.zeros(masks.shape)        # square scores of every image, from the fold where it was held out
 scored = np.zeros(len(data), dtype=bool)

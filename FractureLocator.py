@@ -145,8 +145,11 @@ def find_box(square_probs):
                 blob.append((r, c))
                 todo.append((r, c))
 
-    rows = [r for r, c in blob]
-    cols = [c for r, c in blob]
+    rows = []
+    cols = []
+    for r, c in blob:
+        rows.append(r)
+        cols.append(c)
     scale = 1024 / grid     # one square = 32 pixels
     return [min(cols) * scale, min(rows) * scale, (max(cols) + 1) * scale, (max(rows) + 1) * scale]
 
@@ -227,7 +230,8 @@ def save_heatmap(path, square_probs, box, out_path):
     # X-ray with the fracture probability painted red on top + the predicted box in yellow
     img = Image.open(path).convert("RGB").resize((512, 512))
     heat = Image.fromarray((square_probs * 255).astype(np.uint8)).resize((512, 512), Image.BILINEAR)
-    heat = heat.point(lambda v: int(v * 0.6))                # at most 60% red, so the bone stays visible
+    heat = np.asarray(heat).astype(np.float32) * 0.6           # at most 60% red, so the bone stays visible
+    heat = Image.fromarray(heat.astype(np.uint8))
     red = Image.new("RGB", img.size, (255, 0, 0))
     img = Image.composite(red, img, heat)
     if box is not None:                                      # only drawn when the model says "fracture"

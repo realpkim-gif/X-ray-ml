@@ -82,7 +82,7 @@ def mask_to_grid(mask):
 def get_patches(img):
     # Runs DINO on one image and returns its 32 x 32 grid of patch vectors.
     inputs = processor(images=img, return_tensors="pt").to(device)
-    tokens = model(**inputs).last_hidden_state   # [1, 1 + 1024, 768]: 1 summary token + 1024 patches
+    tokens = model(pixel_values=inputs["pixel_values"]).last_hidden_state   # [1, 1 + 1024, 768]: 1 summary token + 1024 patches
     tokens = tokens[0, 1:]                       # drop the summary token -> [1024, 768]
     grid = tokens.reshape(GRID, GRID, -1)        # [32, 32, 768]
     return grid.half().cpu()                     # half precision = half the disk space

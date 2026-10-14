@@ -70,7 +70,8 @@ device = main.device                         # "cuda" (the GPU) if there is one,
 cnn_model = timm.create_model("convnextv2_base.fcmae_ft_in22k_in1k_384", pretrained=True, num_classes=0)
 cnn_model = cnn_model.eval().to(device)      # eval = inference mode (this backbone has no dropout we want)
 cnn_config = timm.data.resolve_model_data_config(cnn_model)
-cnn_transform = timm.data.create_transform(**cnn_config, is_training=False)   # its own resize + normalisation
+# ConvNeXt's own resize + normalisation. (** = "use every setting in cnn_config as an argument")
+cnn_transform = timm.data.create_transform(**cnn_config, is_training=False)
 
 # DINOv2 (frozen backbone #2) - exactly like DINO.py: 448 x 448, no centre crop
 dino_processor = AutoImageProcessor.from_pretrained("facebook/dinov2-base",
@@ -120,7 +121,8 @@ def draw_overlay(original, heatmap, box, show):
         # 1. the 32 x 32 grid -> a gray image (0-255), stretched smoothly (BILINEAR) to the X-ray's size
         heat = Image.fromarray((heatmap * 255).astype(np.uint8)).resize((width, height), Image.BILINEAR)
         # 2. how strongly each pixel turns red: probability x HEATMAP_STRENGTH (so 1.0 -> 60% red)
-        heat = heat.point(lambda value: int(value * HEATMAP_STRENGTH))
+        heat = np.asarray(heat).astype(np.float32) * HEATMAP_STRENGTH
+        heat = Image.fromarray(heat.astype(np.uint8))
         # 3. Image.composite(A, B, mask): where the mask is bright take A (red), where dark keep B (the X-ray)
         red = Image.new("RGB", picture.size, HEAT_COLOR)
         picture = Image.composite(red, picture, heat)
@@ -152,7 +154,7 @@ def analyse(image, show):
 
         # --- step 3: DINO. ONE pass gives both the image vector and the square vectors ---
         inputs = dino_processor(images=image, return_tensors="pt").to(device)
-        tokens = dino_model(**inputs).last_hidden_state        # [1, 1 + 1024, 768]
+        tokens = dino_model(pixel_values=inputs["pixel_values"]).last_hidden_state   # [1, 1 + 1024, 768]
         summary = tokens[:, 0]                                  # CLS token          [1, 768]
         average = tokens[:, 1:].mean(dim=1)                     # mean of squares    [1, 768]
         dino = torch.cat([summary, average], dim=1)             # like DINO.py       [1, 1536]

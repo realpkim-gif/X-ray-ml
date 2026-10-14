@@ -17,6 +17,7 @@ for p in model.parameters():
 
 # get model specific transforms (normalization, resize)
 data_config = timm.data.resolve_model_data_config(model)
+# ** = "use every setting in data_config (size, mean, std, ...) as an argument"
 transforms = timm.data.create_transform(**data_config, is_training=False)
 
 os.makedirs("ModelWeights/features", exist_ok=True)  # create the output folder if missing

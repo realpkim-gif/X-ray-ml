@@ -25,7 +25,7 @@ for split in ["train", "val", "test"]:
         for i in input:
             img = Image.open(i).convert("RGB")  # gray X-ray -> 3 channels
             inputs = processor(images=img, return_tensors="pt").to(device)
-            tokens = model(**inputs).last_hidden_state    # [1, 1 + num_patches, 768]
+            tokens = model(pixel_values=inputs["pixel_values"]).last_hidden_state    # [1, 1 + num_patches, 768]
             cls = tokens[:, 0]                  # summary token of the whole image   [1, 768]
             patches = tokens[:, 1:].mean(dim=1) # average of all small patches       [1, 768]
             output.append(torch.cat([cls, patches], dim=1).cpu())   # [1, 1536]

@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- Test page for radiant.js: the fracture model running in the browser, no server.
+     Run it locally from the web_model folder:   python -m http.server 8080   then open http://localhost:8080
+     (opening the file by double-click won't work: browsers block loading the models from file://) -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Radiant Fracture Check</title>
+    <style>
+        :root { --bg: #ffffff; --text: #1f2328; --muted: #59636e; --line: #d1d9e0; }
+        @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --text: #e6edf3; --muted: #9198a1; --line: #3d444d; } }
+        body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+        main { max-width: 760px; margin: 0 auto; }
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+        #status { color: var(--muted); }
+        img { max-width: 100%; border: 1px solid var(--line); }
+    </style>
+    <!-- 1. onnxruntime-web: runs ONNX models in the browser -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+    <!-- 2. our pipeline -->
+    <script src="radiant.js"></script>
+</head>
+<body>
+<main>
+    <h1>Radiant fracture check</h1>
+    <p id="status">Loading the model (first time ~200 MB, then cached)...</p>
+    <div class="controls">
+        <input type="file" id="xray" accept="image/*">
+        <select id="show">
+            <option value="both">Box + heatmap</option>
+            <option value="box">Box only</option>
+            <option value="heatmap">Heatmap only</option>
+        </select>
+        <button id="analyse" disabled>Analyze</button>
+    </div>
+    <p id="answer"></p>
+    <img id="picture" alt="">
+</main>
+<script>
+    let last = null;   // the last result, so changing "show" can redraw instantly
+
+    // load the models once when the page opens
+    Radiant.load("./").then(() => {
+        document.querySelector("#status").textContent = "Model ready. Pick an X-ray.";
+        document.querySelector("#analyse").disabled = false;
+    }).catch((error) => {
+        document.querySelector("#status").textContent = "Could not load the model: " + error;
+    });
+
+    document.querySelector("#analyse").addEventListener("click", async () => {
+        const file = document.querySelector("#xray").files[0];
+        if (!file) return;
+        document.querySelector("#status").textContent = "Analyzing (can take 10-30 seconds)...";
+        const started = performance.now();
+        last = await Radiant.analyse(file, document.querySelector("#show").value);
+        const seconds = ((performance.now() - started) / 1000).toFixed(1);
+        document.querySelector("#status").textContent = `Done in ${seconds} s.`;
+        document.querySelector("#answer").textContent =
+            `${last.answer} (${Math.round(last.confidence * 100)}% confident, ${last.fracture_votes} votes). ${last.disclaimer}`;
+        document.querySelector("#picture").src = last.image;
+    });
+
+    // switching box / heatmap / both: just redraw, no need to run the model again
+    document.querySelector("#show").addEventListener("change", () => {
+        if (last) document.querySelector("#picture").src = Radiant.redraw(last, document.querySelector("#show").value);
+    });
+</script>
+</body>
+</html>

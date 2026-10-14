@@ -487,6 +487,31 @@ Uses the same settings as `FractureLocator.py` (`import FractureLocator as fl`).
 - `results/boxes_{split}/`: every X-ray with **only the box** drawn (no heatmap). The file name tells the truth,
   the answer and the confidence, e.g. `fracture_said_fracture_conf100_DX000286_4....jpg`.
 
+### The "X-ray or not" gate (`Xray_Or_Not.py`, `gate_extra.py`, `gate_challenge.py`)
+A small, fast check that runs **before** the big fracture model: if it says "not an X-ray", the website can ask
+*"We believe this isn't an X-ray. Still run?"* instead of running DINO on a screenshot.
+
+- **`Xray_Or_Not.py`**: frozen **ResNet18** turns every picture into 512 numbers; a small head (512 -> 128 -> 2)
+  learns X-ray vs not. Both sides have the same number of pictures. X-ray side: the PreprocessedData X-rays,
+  zoomed pieces cut out with the yellow box (`xray_crops/`), and X-ray variations from `gate_extra/1/`.
+  Not-X-ray side: generated screenshots/documents/charts from `gate_extra/0/`, plus Caltech-256 (objects) and
+  Places365 (scenes) photos, half turned gray. Every run adds its val/test scores to **`gate_scores.csv`**.
+- **`gate_extra.py`**: makes extra pictures in code (text pages, code editors, app screens, charts, tables, drawings,
+  noise; X-rays zoomed, rotated, inverted, tiny, low contrast, annotated, photographed off a screen).
+- **`gate_challenge.py`**: one challenge round = 10 brand-new pictures (5 X-ray, 5 not). Results go to
+  **`gate_challenge_results.csv`**.
+
+**Overnight loop** (challenge -> if a type fails, add ~200 of that type -> retrain):
+round 1 failed `xray_photo` + `noise` (added); round 2 didn't count (a seed bug repeated round 1's pictures,
+fixed); round 3 passed; round 4 failed `xray_annotated` (added); **rounds 5, 6, 7 passed = 30/30**.
+
+**Real pictures from the internet** (Wikimedia Commons, never trained on, `gate_web_check.csv`):
+**55/55** random images correctly "not X-ray"; **17/21** real dog/cat X-rays from other clinics correctly "X-ray".
+The 4 misses are blue-tinted film scans. Adding synthetic tinted X-rays did not fix them (and caused one false alarm),
+so that step was undone. Real X-rays from other clinics in training would be the proper fix.
+
+Final test scores (836 pictures): accuracy 0.999, precision 0.998, recall 1.000.
+
 ---
 
 ## 11. Every output file

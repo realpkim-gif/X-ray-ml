@@ -12,3 +12,17 @@ ModelWeights/
 PreprocessedData/
 Fratura de membro*/
 results/
+hf_space/
+*.onnx
+export_log.txt
+gate_data/
+xray_crops/
+gate_extra/
+challenge_web/
+gate_challenge/
+human_data/
+.claude/
+deploy/
+src/
+gate_train_log.txt
+gate_used_photos.csv
