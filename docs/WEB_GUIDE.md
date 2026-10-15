@@ -18,12 +18,13 @@ Down side: the first visit downloads ~280 MB, and each X-ray takes ~10-25 second
 
 ---
 
-## What's in `web_model/`
+## What's in `src/website/web_model/`
 
 | File | Made by | What it is |
 |---|---|---|
 | `cnn.onnx` (100 MB) | export_onnx.py | ConvNeXt: picture 384x384 -> cnn vector [1, 1024]. Weights stored as 8-bit numbers |
 | `dino.onnx` (174 MB) | export_onnx.py | DINOv2: picture 448x448 -> dino vector [1, 1536] + patches [1, 32, 32, 768]. Weights stored as 16-bit numbers |
+| `gate.onnx` (23 MB) | src/models/export_gate_onnx.py | the "X-ray or not" gate (ResNet18 + head): picture 224x224 -> X-ray chance. Runs first |
 | `heads.onnx` (8 MB) | export_onnx.py | both trained heads, 5 Monte Carlo passes at once -> votes + heatmaps |
 | `config.json` | export_onnx.py | the two vote thresholds, number of passes, dropout keep chances, box setting |
 | `radiant.js` | (written by hand) | the whole pipeline in JavaScript |
@@ -52,7 +53,7 @@ on phones, or in the browser.
 
 Run it again whenever you retrain a head:
 ```bash
-python export_onnx.py
+python src/website/export_onnx.py
 ```
 
 ---
@@ -89,7 +90,7 @@ From the **project** folder:
 ```bash
 python -m http.server 8080
 ```
-Then open http://localhost:8080/web_model/index.html. (Double-clicking index.html won't work: browsers block
+Then open http://localhost:8080/website/web_model/index.html. (Double-clicking index.html won't work: browsers block
 loading the model files from `file://`.)
 
 **Tested in the browser:** the fracture X-ray gave 10 of 10 votes and the same box as PyTorch; the normal one 0 of 10.
@@ -110,7 +111,7 @@ loading the model files from `file://`.)
 The model files are too big for GitHub (100 MB per file limit), so:
 
 **1. Host the model on your Static Hugging Face Space**
-- Space -> **Files** -> **+ Contribute** -> **Upload files**: drag in everything inside `web_model/`, then **Commit**.
+- Space -> **Files** -> **+ Contribute** -> **Upload files**: drag in everything inside `src/website/web_model/`, then **Commit**.
   Hugging Face stores the big `.onnx` files with "LFS" (large file storage) automatically.
 - The Space then *is* a working page: `https://<your-username>-<space-name>.static.hf.space`
 - Each file also has a direct download address:
@@ -133,6 +134,19 @@ The model files are too big for GitHub (100 MB per file limit), so:
   }
 </script>
 ```
-Look at `web_model/index.html` for a complete working example (loading message, button, show dropdown).
+Look at `src/website/web_model/index.html` for a complete working example (loading message, button, show dropdown).
 
-**After retraining:** run `python export_onnx.py`, then upload the new `.onnx` files and `config.json` to the Space.
+**After retraining:** run `python src/website/export_onnx.py`, then upload the new `.onnx` files and `config.json` to the Space.
+
+---
+
+## The "X-ray or not" gate
+
+`Radiant.analyse(file, show)` first runs `gate.onnx` (about 0.3 s). If the X-ray chance is below 0.5 it does **not**
+run the big models and returns:
+```javascript
+{ gate: "not_xray", xray_chance: 0.0, message: "We believe this isn't an X-ray. Still run?" }
+```
+Show the message with a "Still run" button; on click call `Radiant.analyse(file, show, true)` (true = skip the gate).
+Normal results also contain `gate` ("xray", or "skipped" after "Still run") and `xray_chance`.
+Re-export the gate after retraining it: `python src/models/export_gate_onnx.py`.

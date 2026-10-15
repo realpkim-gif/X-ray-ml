@@ -1,3 +1,4 @@
+import sys
 import os
 import json
 import numpy as np
@@ -12,6 +13,14 @@ from onnx import numpy_helper, helper
 import onnxruntime as ort
 from onnxruntime.quantization import quantize_dynamic, QuantType
 from sklearn.metrics import roc_auc_score
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+# Python only finds other files in the SAME folder. This adds the folders whose files we import:
+sys.path.append(os.path.join(PROJECT_FOLDER, "src", "models"))
+
 import main                      # CNN+DINO head (head.pt), thresholds
 import FractureLocator as fl     # patch head (fracture_head.pt), find_box, box_iou
 
@@ -29,9 +38,9 @@ import FractureLocator as fl     # patch head (fracture_head.pt), find_box, box_
 # The two backbones are big (~350 MB each), so they are made smaller (see step 4).
 # Step 5 checks that the browser version still gives the same answers as PyTorch.
 #
-#   python export_onnx.py
+#   python src/website/export_onnx.py
 
-OUT = "web_model"
+OUT = "src/website/web_model"
 PASSES = 5                # Monte Carlo dropout passes per head (same as vote.py / API.py)
 DROPOUT_HEAD = 0.3        # main.py Head: nn.Dropout(0.3)
 DROPOUT_PATCH = 0.2       # FractureLocator PatchHead: nn.Dropout2d(0.2)
@@ -108,9 +117,9 @@ class HeadsNet(nn.Module):
 # ======================================================================================
 
 head = main.Head(1024, 1536, main.num_classes)
-head.load_state_dict(torch.load("head.pt", map_location=device))
+head.load_state_dict(torch.load("src/models/weights/head.pt", map_location=device))
 patch_head = fl.PatchHead(768)
-patch_head.load_state_dict(torch.load("fracture_head.pt", map_location=device))
+patch_head.load_state_dict(torch.load("src/models/weights/fracture_head.pt", map_location=device))
 
 cnn_net = CnnNet().eval()
 dino_net = DinoNet().eval()
@@ -174,11 +183,11 @@ for name in ["cnn", "dino"]:
     print("smaller", f"{OUT}/{name}.onnx", round(os.path.getsize(f"{OUT}/{name}.onnx") / 1e6, 1), "MB")
 
 # everything the JavaScript needs besides the models
-with open("thresholds.json") as f:
+with open("src/models/weights/thresholds.json") as f:
     head_threshold = json.load(f)["fracture"]
 config = {
     "head_threshold": head_threshold,                                     # CNN+DINO head votes "fracture" above this
-    "patch_threshold": float(pd.read_csv("fracture_metrics.csv")["threshold"][0]),   # patch head votes above this
+    "patch_threshold": float(pd.read_csv("metrics/fracture_metrics.csv")["threshold"][0]),   # patch head votes above this
     "passes": PASSES,
     "keep_head": 1 - DROPOUT_HEAD,
     "keep_patch": 1 - DROPOUT_PATCH,

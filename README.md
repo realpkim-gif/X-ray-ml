@@ -6,6 +6,29 @@ If a word is new, check the [Glossary](#13-glossary) at the bottom.
 
 ---
 
+## Project layout
+
+```
+X-ray-ml/
+├── README.md
+├── src/
+│   ├── preprocess/      preprocess.py, augmentation.py (clean + split the X-rays)
+│   │                    Pretrained_CNN.py, DINO_patches.py (frozen backbones -> saved features)
+│   ├── models/          DINO.py (frozen DINOv2 -> saved features), main.py (CNN+DINO head), FractureLocator.py (patch head + box), vote.py,
+│   │   │                cross_validate.py, Xray_Or_Not.py + gate_extra.py + gate_challenge.py (X-ray gate),
+│   │   │                export_gate_onnx.py
+│   │   └── weights/     head.pt, fracture_head.pt, gate_head.pt, thresholds.json (trained models)
+│   └── website/         export_onnx.py, web_model/ (radiant.js, index.html, .onnx models: runs in the browser)
+├── data/                raw/, PreprocessedData/, features/, views.csv, gate photos, crops, web pictures, human_data/
+├── metrics/             every result: csv scores and predictions, roc_*.png, heatmaps_*/, boxes_*/, gate_challenge/
+└── docs/                API_GUIDE.md, WEB_GUIDE.md, HOW_THE_BOX_WORKS.md
+```
+
+Every script starts with commented lines that **go to the project folder first**, so all paths
+(`data/...`, `src/models/weights/...`, `metrics/...`) work whether you press Run in PyCharm or use a terminal.
+
+---
+
 ## Contents
 
 1. [Summary](#1-summary)
@@ -89,7 +112,7 @@ The two heads make **different** mistakes, so the vote is steadier than either o
 **Why val/test look better than cross-validation:** val and test only contain ~10 animals per view.
 A few lucky animals can push a score to 0.99. Cross-validation scores **every** animal, so believe it more.
 
-![ROC curve on test](roc_test.png)
+![ROC curve on test](metrics/roc_test.png)
 
 ---
 
@@ -98,7 +121,7 @@ A few lucky animals can push a score to 0.99. Cross-validation scores **every** 
 ```mermaid
 flowchart TD
     A["Roboflow download<br/>Fratura de membro v5<br/>1,200 X-rays + COCO json outlines"] --> B["preprocess.py<br/>clean, find animal ids,<br/>split 70/15/15 BY ANIMAL,<br/>4 augmented copies per train image"]
-    B --> C["PreprocessedData/<br/>train / valid / test folders (images + json)<br/>train.csv val.csv test.csv label_map.json"]
+    B --> C["data/PreprocessedData/<br/>train / valid / test folders (images + json)<br/>train.csv val.csv test.csv label_map.json"]
     V["data/views.csv<br/>limb / body / other_source per image"] -.used for fair scoring.-> H
     V -.-> I
     V -.-> K
@@ -116,12 +139,12 @@ flowchart TD
     G3 --> I["FractureLocator.py<br/>PATCH HEAD (trained)<br/>score per square -> heatmap -> box<br/>top-8 squares = fracture yes/no"]
     G3 --> K["cross_validate.py<br/>5-fold by animal<br/>trustworthy scores"]
 
-    H --> J["head.pt"]
-    I --> L["fracture_head.pt"]
+    H --> J["src/models/weights/head.pt"]
+    I --> L["src/models/weights/fracture_head.pt"]
 
     J --> M["vote.py<br/>Monte Carlo dropout: 5 passes per head = 10 votes<br/>majority vote = answer<br/>share agreeing = confidence<br/>average heatmap = box"]
     L --> M
-    M --> N["vote_*_predictions.csv, vote_metrics.csv<br/>roc_val.png, roc_test.png<br/>results/boxes_*/ (X-rays with only the box)"]
+    M --> N["metrics/vote_*_predictions.csv, vote_metrics.csv<br/>roc_val.png, roc_test.png<br/>metrics/boxes_*/ (X-rays with only the box)"]
 ```
 
 The same thing as a picture of shapes, for **one** X-ray:
@@ -147,15 +170,14 @@ which has the **CUDA** build of PyTorch, so the RTX 4060 is used). In order:
 
 | Step | Command | Time (RTX 4060) | Needs |
 |---|---|---|---|
-| 1 | `python preprocess.py` | ~2 min | the Roboflow folder |
-| 2 | `python Pretrained_CNN.py` | ~10 min | step 1 |
-| 3 | `python DINO.py` | ~5 min | step 1 |
-| 4 | `python DINO_patches.py` | ~3 min | step 1 |
-| 5 | `python main.py` | ~1 min | steps 2 + 3 |
-| 6 | `python FractureLocator.py` | ~2 min | step 4 |
-| 7 | `python vote.py` | ~1 min | steps 5 + 6 |
-| optional | `python cross_validate.py` | ~5 min | step 4 |
-| optional | `python OnlyDino.py` | ~1 min | step 3 |
+| 1 | `python src/preprocess/preprocess.py` | ~2 min | the Roboflow folder |
+| 2 | `python src/preprocess/Pretrained_CNN.py` | ~10 min | step 1 |
+| 3 | `python src/models/DINO.py` | ~5 min | step 1 |
+| 4 | `python src/preprocess/DINO_patches.py` | ~3 min | step 1 |
+| 5 | `python src/models/main.py` | ~1 min | steps 2 + 3 |
+| 6 | `python src/models/FractureLocator.py` | ~2 min | step 4 |
+| 7 | `python src/models/vote.py` | ~1 min | steps 5 + 6 |
+| optional | `python src/models/cross_validate.py` | ~5 min | step 4 |
 
 **Re-running preprocess.py makes a new split.** After it, re-run every later step,
 because the features and heads belong to the old split.
@@ -278,19 +300,19 @@ and checked every group by eye:
 | body (belly / pelvis / side view, hind legs visible) | 96 | 644 |
 | other_source (CR / img / RAYSSINHA: other scanners) | 59 | 0 |
 
-**Privacy:** the X-rays have burned-in text (pet name, hospital name). That is why `results/` is in `.gitignore`.
+**Privacy:** the X-rays have burned-in text (pet name, hospital name). That is why `metrics/` pictures and `data/` are in `.gitignore`.
 
 ---
 
 ## 7. File by file: data preparation
 
 ### `preprocess.py`: raw download -> clean, split dataset
-**In:** the Roboflow folder (`INPUT`). **Out:** `PreprocessedData/`.
+**In:** the Roboflow folder (`INPUT`). **Out:** `data/PreprocessedData/`.
 
 | Setting | Value | Meaning |
 |---|---|---|
 | `INPUT` | Roboflow folder | a CSV, label folders, or a COCO export all work |
-| `OUTPUT` | `PreprocessedData` | where everything is written |
+| `OUTPUT` | `data/PreprocessedData` | where everything is written |
 | `VAL_SIZE`, `TEST_SIZE` | 0.15, 0.15 | train gets the other 70% |
 | `AUGMENT_COPIES` | 4 | extra augmented copies of every train image |
 | `MIN_SIZE`, `MAX_SIZE` | 64, 1024 | too small = rejected; too big = shrunk |
@@ -310,7 +332,7 @@ Step by step:
 8. **Label numbers:** `label_map.json` = `{"fracture": 0, "normal": 1}` (alphabetical). `label_ids` = `"0"` or `"1"`.
 9. **Split by animal.** Other-source animals go to train. The rest are grouped by their findings and each group
    is shuffled and cut 70/15/15. An animal's X-rays all go to the same split.
-10. **Copy** the kept images into `PreprocessedData/train`, `valid`, `test`.
+10. **Copy** the kept images into `data/PreprocessedData/train`, `valid`, `test`.
 11. **Augment train only:** 4 copies of each train image via `augment()` (small flip/rotate/shift/brightness/blur).
     Val and test stay real X-rays.
 12. **Write COCO json** per folder. Every image gets `label`, `animal`, `augmented`. Real images keep their outlines.
@@ -336,13 +358,25 @@ It also has `train_transforms()`, `eval_transforms()` and `XrayDataset` for trai
 - For every row of `train/val/test.csv`: open -> RGB (gray copied into 3 channels) -> model -> [1, 1024].
 - **Out:** `data/features/cnn_{split}.npy`, shape [N, 1024]. Row i = row i of the csv.
 
-### `DINO.py`: one DINOv2 vector per image
+### `DINO.py` (in `src/models/`): one DINOv2 vector per image
 - Loads `facebook/dinov2-base` from **transformers**, frozen.
 - `SIZE = 448` (must be a multiple of 14) and **no centre crop**, so a fracture near the edge isn't cut off.
 - `last_hidden_state` has shape [1, 1 + 1024, 768]: 1 summary token + 1024 square tokens.
 - Keeps `cls = tokens[:, 0]` (summary) and `patches = tokens[:, 1:].mean(dim=1)` (average of all squares)
   -> joined = [1, 1536].
 - **Out:** `data/features/dino_{split}.npy`, shape [N, 1536].
+
+**`DINO.py` vs the old `OnlyDino.py`** (deleted): two different kinds of file.
+- `DINO.py` = **feature extraction**. Runs the frozen DINOv2 on every X-ray and saves 1536 numbers per image.
+  No training: DINO's weights never change (`.eval()`, `torch.no_grad()`, no optimizer).
+- `OnlyDino.py` was **training**: a small head trained on those DINO numbers **alone, without the CNN numbers**,
+  an experiment to check whether ConvNeXt is needed. Nothing used it, so it was deleted.
+
+```
+DINO.py:      X-ray -> DINOv2 (frozen) -> dino_*.npy                          (makes the features)
+main.py:      cnn_*.npy + dino_*.npy -> trained head -> fracture yes/no        (the one we use)
+OnlyDino.py:  dino_*.npy only        -> trained head -> fracture yes/no        (experiment, deleted)
+```
 
 ### `DINO_patches.py`: one DINOv2 vector per **square** + the outline grid
 Like `DINO.py`, but keeps **every** square instead of averaging, so a head can learn **where**.
@@ -391,15 +425,11 @@ Functions:
 
 Main part (only when you run `main.py` itself, thanks to `if __name__ == "__main__":`):
 train with AdamW (lr 0.001, weight decay 0.01), and after every epoch check the val loss.
-The epoch with the **lowest val loss** is saved to `head.pt`.
+The epoch with the **lowest val loss** is saved to `src/models/weights/head.pt`.
 Note: train loss reaches ~0 while val loss grows. The head **memorises** train quickly, which is why the best
 (early) epoch is kept instead of the last.
 
-**Out:** `head.pt`, `trainHistory.csv`, `thresholds.json`, `{val,test}_predictions.csv`, `{val,test}_metrics.csv`.
-
-### `OnlyDino.py`: the same head with DINO only (for comparison)
-Imports `load`, `evaluate`, `make_criterion`, `make_scheduler` and settings from `main.py`, and trains a head with
-only the DINO branch (`fc2 -> ReLU -> Dropout -> fc3`). Outputs get a `dino_` prefix so nothing of `main.py` is overwritten.
+**Out:** `src/models/weights/head.pt`, `src/models/weights/thresholds.json`, `metrics/trainHistory.csv`, `metrics/{val,test}_predictions.csv`, `metrics/{val,test}_metrics.csv`.
 
 ### `FractureLocator.py`: the patch head (fracture yes/no **and where**)
 The head scores **every square**: "is this square part of a fracture?"
@@ -448,8 +478,8 @@ Functions:
 - `train_head()`: the training loop. Loss = `IMAGE_WEIGHT x` weighted image loss `+ PATCH_WEIGHT x` square loss.
   With val data it keeps the epoch with the best **view-averaged** val AUROC (can't be won by guessing the view).
 
-**Out:** `fracture_head.pt`, `fracture_trainHistory.csv`, `fracture_{val,test}_predictions.csv`,
-`fracture_metrics.csv`, `results/heatmaps_{val,test}/`.
+**Out:** `src/models/weights/fracture_head.pt`, `metrics/fracture_trainHistory.csv`, `metrics/fracture_{val,test}_predictions.csv`,
+`metrics/fracture_metrics.csv`, `metrics/heatmaps_{val,test}/`.
 
 ---
 
@@ -466,7 +496,7 @@ Uses the same settings as `FractureLocator.py` (`import FractureLocator as fl`).
 **Out:** `fracture_cv_predictions.csv` and the printed scores.
 
 ### `vote.py`: both heads together, Monte Carlo dropout, majority vote
-1. Load both trained heads (`head.pt`, `fracture_head.pt`).
+1. Load both trained heads (`src/models/weights/head.pt`, `src/models/weights/fracture_head.pt`).
 2. **Thresholds from val** (dropout off): one per head, each catching 90% of val fractures.
 3. For val and test:
    - CNN+DINO head: dropout **on**, 5 passes -> 5 votes (probability >= its threshold).
@@ -484,7 +514,7 @@ Uses the same settings as `FractureLocator.py` (`import FractureLocator as fl`).
 **Out:**
 - `vote_{split}_predictions.csv`: image, view, truth, `fracture_votes_of_10`, answer, confidence, box.
 - `vote_metrics.csv`, `roc_val.png`, `roc_test.png`.
-- `results/boxes_{split}/`: every X-ray with **only the box** drawn (no heatmap). The file name tells the truth,
+- `metrics/boxes_{split}/`: every X-ray with **only the box** drawn (no heatmap). The file name tells the truth,
   the answer and the confidence, e.g. `fracture_said_fracture_conf100_DX000286_4....jpg`.
 
 ### The "X-ray or not" gate (`Xray_Or_Not.py`, `gate_extra.py`, `gate_challenge.py`)
@@ -518,18 +548,17 @@ Final test scores (836 pictures): accuracy 0.999, precision 0.998, recall 1.000.
 
 | File / folder | Made by | What it is |
 |---|---|---|
-| `PreprocessedData/` | preprocess.py | clean split: images + json per folder, csvs, label_map.json, rejected.csv |
+| `data/PreprocessedData/` | preprocess.py | clean split: images + json per folder, csvs, label_map.json, rejected.csv |
 | `data/views.csv` | (one-off clustering) | limb / body / other_source per image |
 | `data/features/cnn_*.npy` | Pretrained_CNN.py | [N, 1024] |
 | `data/features/dino_*.npy` | DINO.py | [N, 1536] |
 | `data/features/patches_*.npy`, `masks_*.npy`, `patches_*.csv` | DINO_patches.py | [N, 32, 32, 768], [N, 32, 32], row info |
-| `head.pt`, `trainHistory.csv`, `thresholds.json`, `{val,test}_predictions.csv`, `{val,test}_metrics.csv` | main.py | CNN+DINO head and its scores |
-| `dino_*` files | OnlyDino.py | DINO-only head and its scores |
-| `fracture_head.pt`, `fracture_*.csv`, `results/heatmaps_*/` | FractureLocator.py | patch head, scores, heatmap pictures |
+| `src/models/weights/head.pt`, `src/models/weights/thresholds.json`, `metrics/trainHistory.csv`, `metrics/{val,test}_predictions.csv`, `metrics/{val,test}_metrics.csv` | main.py | CNN+DINO head and its scores |
+| `src/models/weights/fracture_head.pt`, `metrics/fracture_*.csv`, `metrics/heatmaps_*/` | FractureLocator.py | patch head, scores, heatmap pictures |
 | `fracture_cv_predictions.csv` | cross_validate.py | every animal scored once |
-| `vote_*_predictions.csv`, `vote_metrics.csv`, `roc_*.png`, `results/boxes_*/` | vote.py | the final answers, scores, ROC curves, box-only pictures |
+| `metrics/vote_*_predictions.csv`, `metrics/vote_metrics.csv`, `metrics/roc_*.png`, `metrics/boxes_*/` | vote.py | the final answers, scores, ROC curves, box-only pictures |
 
-`data/`, `PreprocessedData/`, `results/`, `*.npy`, `*.pt`, `*.csv` are in `.gitignore` (too big, or private).
+`data/`, `metrics/` pictures, `*.npy`, `*.pt`, `*.onnx`, most `*.csv` are in `.gitignore` (too big, or private).
 
 ---
 

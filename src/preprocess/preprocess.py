@@ -6,6 +6,12 @@ import hashlib
 import pandas as pd
 import torch
 from PIL import Image
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 from augmentation import augment
 
 # ======================================================================================
@@ -24,8 +30,8 @@ from augmentation import augment
 # ======================================================================================
 
 # ---------- settings ----------
-INPUT = "src/Fratura de membro.v5-dataset-final--400-frat-e-800-n-frat-.coco-segmentation"
-OUTPUT = "PreprocessedData"
+INPUT = "data/raw/Fratura de membro.v5-dataset-final--400-frat-e-800-n-frat-.coco-segmentation"
+OUTPUT = "data/PreprocessedData"
 VAL_SIZE = 0.15
 TEST_SIZE = 0.15           # train gets the rest (70%)
 AUGMENT_COPIES = 4         # extra augmented copies of every train image (0 = none)

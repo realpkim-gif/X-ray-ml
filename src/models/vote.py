@@ -5,6 +5,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, precision_score, recall_score, f1_score
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 import main                      # CNN + DINO head (head.pt)        -> fracture yes/no
 import FractureLocator as fl     # patch head (fracture_head.pt)    -> fracture yes/no + box
 
@@ -19,7 +25,7 @@ import FractureLocator as fl     # patch head (fracture_head.pt)    -> fracture 
 #   confidence   = share of the 10 votes that agree with the final answer
 # The box comes from FractureLocator's average heatmap over its 5 passes.
 #
-# Run after main.py and FractureLocator.py.
+# Run after main.py and FractureLocator.py (src/models/).
 # ======================================================================================
 
 PASSES = 5
@@ -32,11 +38,11 @@ fracture = main.label_map["fracture"]           # which output of the CNN+DINO h
 # ---------- the two trained heads ----------
 val_cnn, val_dino, val_targets = main.load("val")
 head = main.Head(val_cnn.shape[1], val_dino.shape[1], main.num_classes).to(device)
-head.load_state_dict(torch.load("head.pt"))
+head.load_state_dict(torch.load("src/models/weights/head.pt"))
 
 val_data, val_patches, val_masks, val_labels = fl.load("val", keep_flipped=False)
 locator = fl.PatchHead(val_patches.shape[-1]).to(device)
-locator.load_state_dict(torch.load("fracture_head.pt"))
+locator.load_state_dict(torch.load("src/models/weights/fracture_head.pt"))
 
 
 # ---------- one threshold per head ----------
@@ -121,17 +127,17 @@ for split in ["val", "test"]:
 
     results = pd.DataFrame(rows, columns=["image_path", "view", "true", "fracture_votes_of_10",
                                           "predicted", "confidence", "box"])
-    results.to_csv(f"vote_{split}_predictions.csv", index=False)
+    results.to_csv(f"metrics/vote_{split}_predictions.csv", index=False)
 
-    # ---------- pictures with only the box (no heatmap): results/boxes_{split}/ ----------
-    os.makedirs(f"results/boxes_{split}", exist_ok=True)
+    # ---------- pictures with only the box (no heatmap): outputs/boxes_{split}/ ----------
+    os.makedirs(f"metrics/boxes_{split}", exist_ok=True)
     for i in range(len(results)):
         img = Image.open(image_paths[i]).convert("RGB")      # 1024 x 1024, same pixels as the box
         if results["box"][i] != "":
             ImageDraw.Draw(img).rectangle(results["box"][i], outline=(255, 255, 0), width=4)
         percent = round(results["confidence"][i] * 100)
         name = f"{results['true'][i]}_said_{results['predicted'][i]}_conf{percent}_{os.path.basename(image_paths[i])}"
-        img.save(f"results/boxes_{split}/{name}")
+        img.save(f"metrics/boxes_{split}/{name}")
 
     # ---------- final answer vs the truth ----------
     fracture_share = []
@@ -172,11 +178,11 @@ for split in ["val", "test"]:
     plt.ylabel("true positive rate (fractures caught)")
     plt.title(f"ROC curve - {split}")
     plt.legend()
-    plt.savefig(f"roc_{split}.png", dpi=120)
+    plt.savefig(f"metrics/roc_{split}.png", dpi=120)
     plt.close()
 
 all_scores = pd.DataFrame(all_scores)
-all_scores.to_csv("vote_metrics.csv", index=False)
+all_scores.to_csv("metrics/vote_metrics.csv", index=False)
 print()
 print("majority vote of both heads:")
 print(all_scores.to_string(index=False))

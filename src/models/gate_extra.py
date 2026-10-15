@@ -7,6 +7,12 @@ import matplotlib
 matplotlib.use("Agg")                      # draw charts without opening a window
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageEnhance
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 
 # Extra pictures for the "X-ray or not" gate (Xray_Or_Not.py), made in code.
 #
@@ -21,9 +27,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps, ImageEnhance
 # add_training_data(type, counts) saves pictures to gate_extra/<label>/<type>/<split>/,
 # and Xray_Or_Not.py automatically trains on everything in gate_extra/.
 #
-#   python gate_extra.py        (makes the first set: screenshot-like pictures)
+#   python src/models/gate_extra.py        (makes the first set: screenshot-like pictures)
 
-EXTRA = "gate_extra"
+EXTRA = "data/gate_extra"
 FONTS = "C:/Windows/Fonts"
 TEXT_FONTS = ["arial.ttf", "times.ttf", "calibri.ttf", "segoeui.ttf", "georgia.ttf", "verdana.ttf", "tahoma.ttf"]
 CODE_FONTS = ["consola.ttf", "cour.ttf", "lucon.ttf"]
@@ -59,7 +65,7 @@ def sentence(rng, n):
 
 def xray_paths(split):
     # real X-rays of this split (no augmented copies)
-    data = pd.read_csv(f"PreprocessedData/{split}.csv")
+    data = pd.read_csv(f"data/PreprocessedData/{split}.csv")
     return list(data[data["augmented"] == False]["image_path"])
 
 

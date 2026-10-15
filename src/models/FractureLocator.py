@@ -6,6 +6,12 @@ from torch import nn
 import torch.optim as optim
 from PIL import Image, ImageDraw
 from sklearn.metrics import roc_auc_score
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 from main import make_scheduler, device, TARGET_RECALL   # same lr schedule and recall goal as main.py
 
 # Finds fractures AND roughly where they are (a box), from the DINO patch vectors made by DINO_patches.py.
@@ -15,8 +21,8 @@ from main import make_scheduler, device, TARGET_RECALL   # same lr schedule and 
 # Squares outside the outline in fracture images, and all squares of normal images, are "healthy".
 # So the head has to learn what a fracture looks like, not which kind of X-ray it is.
 
-FEATURES = "ModelWeights/features"
-VIEWS = "ModelWeights/views.csv"    # body / limb / other_source per image (from clustering, checked by eye)
+FEATURES = "data/features"
+VIEWS = "data/views.csv"    # body / limb / other_source per image (from clustering, checked by eye)
 EPOCHS = 40
 BATCH_SIZE = 16
 LR = 0.001
@@ -35,7 +41,12 @@ def load(split, keep_flipped):
     # everything stays on the cpu; each batch is moved to the gpu when it is used (saves gpu memory).
     data = pd.read_csv(f"{FEATURES}/patches_{split}.csv")
     views = pd.read_csv(VIEWS)
-    data = data.merge(views, on="original", how="left")      # adds the "view" column
+    # match each image to its view by FILE NAME (e.g. "DX000098_4_jpg.rf.123.jpg"), not by the full path,
+    # so it still works if the raw data folder moves
+    data["file"] = data["original"].apply(os.path.basename)
+    views["file"] = views["original"].apply(os.path.basename)
+    views = views[["file", "view"]]
+    data = data.merge(views, on="file", how="left")          # adds the "view" column
     patches = np.load(f"{FEATURES}/patches_{split}.npy")     # [N, 32, 32, 768] half precision
     masks = np.load(f"{FEATURES}/masks_{split}.npy")         # [N, 32, 32] 0-1, share of each square inside the outline
 
@@ -241,7 +252,7 @@ def save_heatmap(path, square_probs, box, out_path):
 
 
 def train_head(train_data, train_patches, train_masks, train_labels, val=None, save_path=None):
-    # trains one PatchHead. val = (ModelWeights, patches, masks, labels): then the epoch with the best
+    # trains one PatchHead. val = (data, patches, masks, labels): then the epoch with the best
     # view-averaged val AUROC is kept (saved to save_path). Without val the last epoch is kept.
     train_weights = view_weights(train_data)
     model = PatchHead(train_patches.shape[-1]).to(device)
@@ -303,9 +314,9 @@ if __name__ == "__main__":
     test_data, test_patches, test_masks, test_labels = load("test", keep_flipped=False)
 
     val = (val_data, val_patches, val_masks, val_labels)
-    model, history = train_head(train_data, train_patches, train_masks, train_labels, val, "fracture_head.pt")
+    model, history = train_head(train_data, train_patches, train_masks, train_labels, val, "src/models/weights/fracture_head.pt")
     history = pd.DataFrame(history, columns=["epoch", "train_loss", "val_auroc", "val_auroc_view_avg"])
-    history.to_csv("fracture_trainHistory.csv", index=False)
+    history.to_csv("metrics/fracture_trainHistory.csv", index=False)
 
 
     # ---------------- Predict on val and test with the best saved head ----------------
@@ -321,12 +332,12 @@ if __name__ == "__main__":
     for split in splits:
         data, masks, labels, scores = splits[split]
         results, split_scores = evaluate(data, masks, labels, scores, threshold)
-        results.to_csv(f"fracture_{split}_predictions.csv", index=False)
+        results.to_csv(f"metrics/fracture_{split}_predictions.csv", index=False)
         split_scores["split"] = split
         all_scores.append(split_scores)
 
         # heatmap pictures: where the model thinks the fracture is (red) + its box (yellow)
-        os.makedirs(f"results/heatmaps_{split}", exist_ok=True)
+        os.makedirs(f"metrics/heatmaps_{split}", exist_ok=True)
         square_probs = torch.sigmoid(scores).numpy()
         for i in range(len(data)):
             box = None
@@ -334,8 +345,8 @@ if __name__ == "__main__":
                 box = [results["box_x1"][i], results["box_y1"][i], results["box_x2"][i], results["box_y2"][i]]
             percent = round(results["probability"][i] * 100)
             name = f"{data['label'][i]}_{percent}_{os.path.basename(data['image_path'][i])}.png"
-            save_heatmap(data["image_path"][i], square_probs[i], box, f"results/heatmaps_{split}/{name}")
+            save_heatmap(data["image_path"][i], square_probs[i], box, f"metrics/heatmaps_{split}/{name}")
 
     all_scores = pd.DataFrame(all_scores)
-    all_scores.to_csv("fracture_metrics.csv", index=False)
+    all_scores.to_csv("metrics/fracture_metrics.csv", index=False)
     print("\n" + all_scores.to_string(index=False))

@@ -105,8 +105,8 @@ Loading takes seconds; doing it per request would make every answer slow.
 
 **Part 1: load everything once.** When uvicorn starts the API, it loads:
 - ConvNeXt and DINOv2 (the frozen backbones)
-- the trained **CNN+DINO head** (`head.pt`) and **patch head** (`fracture_head.pt`)
-- the two **thresholds** the heads vote with (`thresholds.json`, `fracture_metrics.csv`), both chosen on val to catch 90% of fractures
+- the trained **CNN+DINO head** (`src/models/weights/head.pt`) and **patch head** (`src/models/weights/fracture_head.pt`)
+- the two **thresholds** the heads vote with (`src/models/weights/thresholds.json`, `metrics/fracture_metrics.csv`), both chosen on val to catch 90% of fractures
 
 **Part 2: `analyse(image)`, the pipeline for one X-ray.** It uses the same steps as training, so the models get
 the same kind of input they learned on:
@@ -185,10 +185,11 @@ async function analyse(file, show = "both") {   // file = from <input type="file
 
 **On your laptop (for testing):**
 ```bash
-python -m uvicorn API:app --host 127.0.0.1 --port 8000
+python -m uvicorn API:app --app-dir website --host 127.0.0.1 --port 8000
 ```
-Run it from this project folder: it needs `head.pt`, `fracture_head.pt`, `thresholds.json`, `fracture_metrics.csv`,
-and `PreprocessedData/label_map.json`.
+Run it from the project folder (`--app-dir website` = "API.py is in the website folder"). It needs
+`src/models/weights/head.pt`, `src/models/weights/fracture_head.pt`, `src/models/weights/thresholds.json`, `metrics/fracture_metrics.csv`
+and `data/PreprocessedData/label_map.json`.
 
 **On the internet (so the real website can use it):** the API must run on a server, e.g. Hugging Face Spaces or Render.
 - They give you an `https://...` address. Put it in `API_URL` in the website, and keep the github.io address in `ALLOWED_WEBSITES`.
@@ -198,42 +199,8 @@ and `PreprocessedData/label_map.json`.
 
 ---
 
-## 7. Putting it online with Hugging Face Spaces (so your laptop can be off)
+## 7. Putting it online
 
-A **Space** is a free cloud computer from Hugging Face that runs your API 24/7 (2 CPU cores, 16 GB memory, no GPU).
-It goes to sleep after ~48 hours without visitors; the next request wakes it up (takes a minute or two).
-Without a GPU each X-ray takes roughly 5-15 seconds.
-
-The `deploy/` folder has what the Space needs:
-
-| File | What it does |
-|---|---|
-| `deploy/Dockerfile` | recipe for the server: install Python + libraries, then start `uvicorn API:app` on port 7860 |
-| `deploy/requirements.txt` | the libraries, with the CPU-only PyTorch (the free Space has no GPU) |
-| `deploy/README.md` | the header tells Hugging Face "this is a Docker app on port 7860" |
-| `deploy/make_space.py` | copies all of that **plus** the code and model files into one folder, `hf_space/` |
-
-### Steps
-
-1. **Make an account** at https://huggingface.co (free).
-2. **Create the Space:** click your profile picture -> **New Space**.
-   - Space name: e.g. `radiant-api`
-   - SDK: **Docker** -> template **Blank**
-   - Hardware: **CPU basic (free)**
-   - Visibility: **Public** (simplest; anyone can see the code and model files)
-   - Click **Create Space**.
-3. **Build the upload folder** on your laptop, from the project folder:
-   ```bash
-   python deploy/make_space.py
-   ```
-4. **Upload:** in the Space, open **Files** -> **+ Contribute** -> **Upload files**, drag in **everything inside `hf_space/`**
-   (including the `PreprocessedData` folder), then click **Commit changes to main**.
-5. **Wait for the build.** The Space shows "Building" (installing PyTorch takes several minutes), then "Running".
-   If it fails, click **Logs** to see why.
-6. **Test it:** open `https://<your-username>-radiant-api.hf.space/docs` and upload an X-ray.
-7. **Point the website at it:** in the website's JavaScript, set
-   `const API_URL = "https://<your-username>-radiant-api.hf.space";`
-
-**After retraining a model:** run `python deploy/make_space.py` again and upload the changed files. The Space rebuilds by itself.
-
-**Privacy:** visitors' X-rays are sent to Hugging Face's servers. Say so on the website, next to the "not a diagnosis" note.
+Your Hugging Face account only allows **Static** Spaces, which can't run Python. So instead of hosting this API,
+the model runs **inside the visitor's browser**: see [WEB_GUIDE.md](WEB_GUIDE.md).
+API.py is still useful for testing on your own computer.

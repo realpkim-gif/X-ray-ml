@@ -1,3 +1,4 @@
+import sys
 import os
 import random
 import datetime
@@ -9,6 +10,14 @@ import torchvision.models as models
 from torchvision import datasets, transforms
 from PIL import Image
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+# Python only finds other files in the SAME folder. This adds the folders whose files we import:
+sys.path.append(os.path.join(PROJECT_FOLDER, "src", "models"))
+
 import FractureLocator as fl     # the patch head: it finds the yellow box, used to make the zoomed X-ray pieces
 
 # ======================================================================================
@@ -33,15 +42,15 @@ import FractureLocator as fl     # the patch head: it finds the yellow box, used
 #
 # Every time it runs, the scores are added as new rows to gate_scores.csv
 #
-#   python Xray_Or_Not.py
+#   python src/models/Xray_Or_Not.py
 # ======================================================================================
 
 # ---------- settings ----------
-PHOTOS_FOLDER = "gate_data"        # where Caltech-256 and Places365 are downloaded
-CROPS_FOLDER = "xray_crops"        # where the zoomed X-ray pieces are saved
-EXTRA_FOLDER = "gate_extra"        # pictures made by gate_extra.py
-SCORES_FILE = "gate_scores.csv"    # every run adds its scores here
-USED_FILE = "gate_used_photos.csv" # which photos were used (so tests can pick photos the gate never saw)
+PHOTOS_FOLDER = "data/gate_photos"        # where Caltech-256 and Places365 are downloaded
+CROPS_FOLDER = "data/xray_crops"        # where the zoomed X-ray pieces are saved
+EXTRA_FOLDER = "data/gate_extra"        # pictures made by gate_extra.py
+SCORES_FILE = "metrics/gate_scores.csv"    # every run adds its scores here
+USED_FILE = "data/gate_used_photos.csv" # which photos were used (so tests can pick photos the gate never saw)
 MIN_CROP = 128                     # zoomed pieces are at least this many pixels wide
 GRAY_SHARE = 0.5                   # half of the photos are turned gray
 EPOCHS = 30
@@ -124,7 +133,7 @@ def xray_chance(head, picture):
 def load_head():
     # the trained head, ready to use
     head = GateHead().to(device)
-    head.load_state_dict(torch.load("gate_head.pt", map_location=device))
+    head.load_state_dict(torch.load("src/models/weights/gate_head.pt", map_location=device))
     head.eval()
     return head
 
@@ -140,7 +149,7 @@ if __name__ == "__main__":
         os.makedirs(f"{CROPS_FOLDER}/{split}", exist_ok=True)
         data, patches, masks, labels = fl.load(split, keep_flipped=False)
         patch_head = fl.PatchHead(768).to(device)
-        patch_head.load_state_dict(torch.load("fracture_head.pt", map_location=device))
+        patch_head.load_state_dict(torch.load("src/models/weights/fracture_head.pt", map_location=device))
         heatmaps = torch.sigmoid(fl.predict_all(patch_head, patches)).numpy()     # [N, 32, 32]
 
         for i in range(len(data)):
@@ -180,7 +189,7 @@ if __name__ == "__main__":
 
     for split in ["train", "val", "test"]:
         # X-rays (train includes the augmented copies made by preprocess.py)
-        data = pd.read_csv(f"PreprocessedData/{split}.csv")
+        data = pd.read_csv(f"data/PreprocessedData/{split}.csv")
         for path in data["image_path"]:
             pictures[split].append(["xray", path, 1])
 
@@ -281,10 +290,10 @@ if __name__ == "__main__":
             val_loss = loss_function(head(vectors["val"]), labels["val"]).item()
         if val_loss < best_val_loss:                    # the best epoch so far -> save it
             best_val_loss = val_loss
-            torch.save(head.state_dict(), "gate_head.pt")
+            torch.save(head.state_dict(), "src/models/weights/gate_head.pt")
         print(f"Epoch [{epoch + 1}/{EPOCHS}], Train loss: {train_loss:.4f}, Val loss: {val_loss:.4f}")
 
-    print("best val loss:", round(best_val_loss, 4), "saved to gate_head.pt")
+    print("best val loss:", round(best_val_loss, 4), "saved to models/gate_head.pt")
 
     # ======================================================================================
     # 5. Scores with the best head, saved to gate_scores.csv

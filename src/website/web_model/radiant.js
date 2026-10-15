@@ -2,6 +2,8 @@
 // radiant.js - the whole fracture model, running INSIDE the browser (no server needed)
 //
 // It does the same as API.py, but in JavaScript with onnxruntime-web ("ort"):
+//   0. gate.onnx : quick "is this even an X-ray?" check (ResNet18). If NOT, stop here and let the
+//                  website ask "We believe this isn't an X-ray. Still run?" (saves running the big models)
 //   1. stretch the X-ray to 1024 x 1024 (like the training X-rays)
 //   2. cnn.onnx  : ConvNeXt  -> cnn vector [1, 1024]
 //      dino.onnx : DINOv2    -> dino vector [1, 1536] + patches [1, 32, 32, 768]
@@ -12,10 +14,13 @@
 // How a web page uses it (see index.html):
 //   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
 //   <script src="radiant.js"></script>
-//   await Radiant.load("web_model/");                    // once: downloads the models (~200 MB, then cached)
+//   await Radiant.load("web_model/");                    // once: downloads the models (~300 MB, then cached)
 //   const result = await Radiant.analyse(file, "both");  // file from <input type="file">
+//   if (result.gate === "not_xray") ...                  // ask "Still run?", then on yes:
+//   const result = await Radiant.analyse(file, "both", true);   // true = still run, skip the gate
 //   img.src = result.image;                              // the X-ray with box + heatmap drawn on it
 //   img.src = Radiant.redraw(result, "box");             // switch view instantly, no re-running the model
+//   result.layers.xray / .heatmap / .box                 // or: 3 separate see-through layers to stack (index.html)
 // =====================================================================================
 
 const Radiant = {};   // everything lives in this one object, so it can't clash with the website's own code
@@ -27,7 +32,8 @@ const Radiant = {};   // everything lives in this one object, so it can't clash 
     const DISCLAIMER = "Not a diagnosis. Always have a veterinarian review the X-ray.";
 
     let config = null;                          // thresholds etc. from config.json
-    let cnnSession = null, dinoSession = null, headsSession = null;   // the three loaded models
+    let gateSession = null;                     // the "X-ray or not" gate
+    let cnnSession = null, dinoSession = null, headsSession = null;   // the three fracture models
 
     // ---------- 1. load the models (call once) ----------
     Radiant.load = async function (modelFolder) {
@@ -36,6 +42,7 @@ const Radiant = {};   // everything lives in this one object, so it can't clash 
         ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
         config = await (await fetch(modelFolder + "config.json")).json();
         const options = { executionProviders: ["wasm"] };   // wasm = runs on the CPU, works in every browser
+        gateSession = await ort.InferenceSession.create(modelFolder + "gate.onnx", options);   // small, loads first
         cnnSession = await ort.InferenceSession.create(modelFolder + "cnn.onnx", options);
         dinoSession = await ort.InferenceSession.create(modelFolder + "dino.onnx", options);
         headsSession = await ort.InferenceSession.create(modelFolder + "heads.onnx", options);
@@ -172,10 +179,74 @@ const Radiant = {};   // everything lives in this one object, so it can't clash 
         return result.image;
     };
 
+    // ---------- 2b. the same drawing, but as 3 SEPARATE see-through layers ----------
+    // result.layers = { xray, heatmap, box }: three PNG pictures, all the size of the original X-ray.
+    //   xray    = the X-ray itself
+    //   heatmap = ONLY the red heatmap, everything else see-through
+    //   box     = ONLY the yellow box, everything else see-through (null for "normal": no box)
+    // A web page stacks them (X-ray at the bottom, heatmap, then box on top) and shows/hides layers
+    // to switch between "box + heatmap", "box" and "heatmap" instantly, without drawing anything again.
+    function makeLayers(result) {
+        const original = result.original;
+        const width = original.width;
+        const height = original.height;
+
+        // the X-ray
+        const xrayCanvas = canvasOf(width, height);
+        xrayCanvas.getContext("2d").drawImage(original, 0, 0);
+
+        // the heatmap alone: 32 x 32 red squares, see-through by probability, stretched smoothly
+        const grid = config.grid;
+        const small = canvasOf(grid, grid);
+        const smallCtx = small.getContext("2d");
+        const image = smallCtx.createImageData(grid, grid);
+        for (let i = 0; i < grid * grid; i++) {
+            const p = result.heatmap[Math.floor(i / grid)][i % grid];
+            image.data[i * 4] = 255;                                         // red
+            image.data[i * 4 + 3] = Math.round(255 * p * HEATMAP_STRENGTH);  // how see-through
+        }
+        smallCtx.putImageData(image, 0, 0);
+        const heatCanvas = canvasOf(width, height);                          // starts fully see-through
+        const heatCtx = heatCanvas.getContext("2d");
+        heatCtx.imageSmoothingEnabled = true;
+        heatCtx.drawImage(small, 0, 0, width, height);
+
+        // the box alone
+        let boxLayer = null;
+        if (result.box !== null) {
+            const b = result.box;
+            const boxCanvas = canvasOf(width, height);                       // starts fully see-through
+            const boxCtx = boxCanvas.getContext("2d");
+            boxCtx.strokeStyle = BOX_COLOR;
+            boxCtx.lineWidth = Math.max(2, Math.round(Math.min(width, height) / 200));
+            boxCtx.strokeRect(b.x1 * width, b.y1 * height, (b.x2 - b.x1) * width, (b.y2 - b.y1) * height);
+            boxLayer = boxCanvas.toDataURL("image/png");
+        }
+
+        return {
+            xray: xrayCanvas.toDataURL("image/png"),
+            heatmap: heatCanvas.toDataURL("image/png"),
+            box: boxLayer,
+        };
+    }
+
     // ---------- 3. the whole pipeline for one X-ray ----------
-    Radiant.analyse = async function (file, show = "both") {
+    Radiant.analyse = async function (file, show = "both", stillRun = false) {
+        // stillRun = true: the user said "still run" after the gate said "not an X-ray" -> skip the gate
         if (config === null) throw new Error("Call Radiant.load() first");
         const original = await createImageBitmap(file);        // decodes the uploaded picture
+
+        // step 0: the gate. The whole picture squashed to 224 x 224 (like Xray_Or_Not.py) -> X-ray chance 0-1
+        const gateOut = await gateSession.run({ pixels: toTensor(original, 224) });
+        const xrayChance = Math.round(gateOut.xray_chance.data[0] * 1000) / 1000;
+        if (xrayChance < config.gate_threshold && !stillRun) {
+            // stop here: the big models don't run. The website should ask "Still run?"
+            return {
+                gate: "not_xray",
+                xray_chance: xrayChance,
+                message: "We believe this isn't an X-ray. Still run?",
+            };
+        }
 
         // step 1: stretch to 1024 x 1024 like the training X-rays
         const base = canvasOf(1024, 1024);
@@ -228,7 +299,13 @@ const Radiant = {};   // everything lives in this one object, so it can't clash 
             answer = "fracture";
             box = findBox(mean);
         }
+        let gate = "xray";                                    // passed the gate
+        if (xrayChance < config.gate_threshold) {
+            gate = "skipped";                                 // not an X-ray, but the user chose "still run"
+        }
         const result = {
+            gate: gate,
+            xray_chance: xrayChance,
             answer: answer,
             confidence: Math.round(Math.max(share, 1 - share) * 100) / 100,
             fracture_votes: `${votes} of ${2 * n}`,
@@ -239,7 +316,8 @@ const Radiant = {};   // everything lives in this one object, so it can't clash 
             disclaimer: DISCLAIMER,
             original: original,                                // kept so redraw() can switch views instantly
         };
-        Radiant.redraw(result, show);                          // fills result.image
+        Radiant.redraw(result, show);                          // fills result.image (one combined picture)
+        result.layers = makeLayers(result);                    // the 3 separate layers, for instant switching
         return result;
     };
 })();

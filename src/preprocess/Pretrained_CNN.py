@@ -4,6 +4,12 @@ import timm
 import torch
 import numpy as np
 import pandas as pd
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 
 model = timm.create_model(
     'convnextv2_base.fcmae_ft_in22k_in1k_384',
@@ -20,10 +26,10 @@ data_config = timm.data.resolve_model_data_config(model)
 # ** = "use every setting in data_config (size, mean, std, ...) as an argument"
 transforms = timm.data.create_transform(**data_config, is_training=False)
 
-os.makedirs("ModelWeights/features", exist_ok=True)  # create the output folder if missing
+os.makedirs("data/features", exist_ok=True)  # create the output folder if missing
 
 for split in ["train", "val", "test"]:
-    input = pd.read_csv(f"PreprocessedData/{split}.csv")["image_path"]  # image paths from preprocess.py
+    input = pd.read_csv(f"data/PreprocessedData/{split}.csv")["image_path"]  # image paths from preprocess.py
     output = []
 
     with torch.no_grad():  # no gradients needed, model is frozen
@@ -32,4 +38,4 @@ for split in ["train", "val", "test"]:
             output.append(model(transforms(img).unsqueeze(0).to(device)).cpu())  # unsqueeze single image into batch of 1
 
     output = torch.cat(output).numpy()  # [num_images, 1024]
-    np.save(f"ModelWeights/features/cnn_{split}.npy", output)  # row i = image i of {split}.csv
+    np.save(f"data/features/cnn_{split}.npy", output)  # row i = image i of {split}.csv

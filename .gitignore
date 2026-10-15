@@ -3,26 +3,24 @@ __pycache__/
 *.pyc
 .venv/
 .idea/
+.claude/
 
-# Data and model outputs (too large for git, keep private)
-ModelWeights/
+# All data (too big for git, and some X-rays show pet / hospital names)
+data/
+human_data/
+
+# Trained models and big model files
 *.pt
 *.npy
-*.csv
-PreprocessedData/
-Fratura de membro*/
-results/
-hf_space/
 *.onnx
-export_log.txt
-gate_data/
-xray_crops/
-gate_extra/
-challenge_web/
-gate_challenge/
-human_data/
-.claude/
-deploy/
-src/
-gate_train_log.txt
-gate_used_photos.csv
+
+# Results: most csv files and all pictures stay local
+# (a few small score csvs and the ROC pictures are added to git on purpose)
+*.csv
+metrics/heatmaps_*/
+metrics/boxes_*/
+metrics/types_*/
+metrics/gate_challenge/
+
+# temporary logs
+*_log.txt

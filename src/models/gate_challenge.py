@@ -1,3 +1,4 @@
+import sys
 import os
 import random
 import datetime
@@ -5,6 +6,14 @@ import time
 import pandas as pd
 from torchvision import datasets
 from PIL import Image
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+# Python only finds other files in the SAME folder. This adds the folders whose files we import:
+sys.path.append(os.path.join(PROJECT_FOLDER, "src", "models"))
+
 import gate_extra                       # makes the generated pictures (screenshots, X-ray variations, ...)
 from Xray_Or_Not import load_head, xray_chance
 
@@ -16,14 +25,14 @@ from Xray_Or_Not import load_head, xray_chance
 # The 10 pictures are saved in gate_challenge/round_<number>/ so you can look at them,
 # and every result is added as a row to gate_challenge_results.csv.
 #
-#   python gate_challenge.py
+#   python src/models/gate_challenge.py
 # ======================================================================================
 
-RESULTS_FILE = "gate_challenge_results.csv"
-CHALLENGE_FOLDER = "gate_challenge"
-WEB_FOLDER = "challenge_web"            # real pictures from the internet: challenge_web/1/ = X-rays, challenge_web/0/ = not
-PHOTOS_FOLDER = "gate_data"
-USED_FILE = "gate_used_photos.csv"      # photos the gate was trained/tested on (we skip those)
+RESULTS_FILE = "metrics/gate_challenge_results.csv"
+CHALLENGE_FOLDER = "metrics/gate_challenge"
+WEB_FOLDER = "data/challenge_web"            # real pictures from the internet: challenge_web/1/ = X-rays, challenge_web/0/ = not
+PHOTOS_FOLDER = "data/gate_photos"
+USED_FILE = "data/gate_used_photos.csv"      # photos the gate was trained/tested on (we skip those)
 
 # X-ray types: "xray_full" = an untouched test X-ray, "web_xray" = a real X-ray from the internet,
 # the rest are X-ray variations from gate_extra.py (always made from TEST-split X-rays)
