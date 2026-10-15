@@ -1,0 +1,10 @@
+{
+  "head_threshold": 0.08421821892261505,
+  "patch_threshold": 0.992,
+  "passes": 5,
+  "keep_head": 0.7,
+  "keep_patch": 0.8,
+  "box_threshold": 0.3,
+  "grid": 32,
+  "gate_threshold": 0.5
+}

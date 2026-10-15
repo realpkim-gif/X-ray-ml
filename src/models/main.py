@@ -1,3 +1,4 @@
+import os
 import json
 import math
 import torch
@@ -7,9 +8,15 @@ import numpy as np
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-DATA = "PreprocessedData"   # where preprocess.py writes the csvs and label_map.json
+DATA = "data/PreprocessedData"   # where preprocess.py writes the csvs and label_map.json
 EPOCHS = 50
 BATCH_SIZE = 8
 TARGET_RECALL = 0.90  # per finding, pick the threshold (on val) that still catches 90% of real cases
@@ -18,12 +25,17 @@ WARMUP = 0.05      # first 5% of training steps: lr climbs from 0 up to its full
 with open(f"{DATA}/label_map.json") as f:
   label_map = json.load(f)               # {"fracture": 0, "normal": 1, ...}
 num_classes = len(label_map)
-class_names = sorted(label_map, key=label_map.get)   # names in number order
+# the label names in number order: class_names[0] = name of label 0, class_names[1] = name of label 1, ...
+class_names = []
+for number in range(num_classes):
+  for name in label_map:
+    if label_map[name] == number:
+      class_names.append(name)
 
 
 def load(split):
-  cnn = torch.tensor(np.load(f"ModelWeights/features/cnn_{split}.npy"), dtype=torch.float32)    # [N, 1024]
-  dino = torch.tensor(np.load(f"ModelWeights/features/dino_{split}.npy"), dtype=torch.float32)  # [N, 1536]
+  cnn = torch.tensor(np.load(f"data/features/cnn_{split}.npy"), dtype=torch.float32)    # [N, 1024]
+  dino = torch.tensor(np.load(f"data/features/dino_{split}.npy"), dtype=torch.float32)  # [N, 1536]
 
   # targets: one row per image, a 1 for every finding it has. "1|5" -> [0, 1, 0, 0, 0, 1, 0]
   label_ids = pd.read_csv(f"{DATA}/{split}.csv", dtype={"label_ids": str})["label_ids"]
@@ -59,8 +71,10 @@ class Head(nn.Module):
 def make_criterion(train_targets):
   # class imbalance: few positives -> each missed positive costs more.
   # pos_weight = negatives / positives per finding (e.g. 800 normal / 400 fracture = 2)
-  positives = train_targets.sum(0).clamp(min=1)
-  pos_weight = (len(train_targets) - positives) / positives
+  positives = train_targets.sum(0)              # how many images have each finding  [num_classes]
+  positives = positives.clamp(min=1)            # at least 1, so we never divide by 0
+  negatives = len(train_targets) - positives    # how many images DON'T have it
+  pos_weight = negatives / positives
   return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
 
@@ -69,7 +83,8 @@ def make_scheduler(optimizer, total_steps):
   # then cosine decay: lr slides smoothly from full down to 0 by the last step
   warmup_steps = max(1, int(WARMUP * total_steps))
 
-  def lr_factor(step):                        # number the base lr gets multiplied by
+  # LambdaLR calls this function at every step and multiplies the base lr by what it returns
+  def lr_factor(step):
     if step < warmup_steps:
       return (step + 1) / warmup_steps
     progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)   # 0 -> 1
@@ -81,10 +96,16 @@ def make_scheduler(optimizer, total_steps):
 def pick_thresholds(probs, targets):
   # one threshold per finding, chosen on VAL (never on test, that would be cheating).
   # the highest threshold that still catches TARGET_RECALL of the real cases.
-  probs, targets = probs.cpu().numpy(), targets.cpu().numpy()
+  probs = probs.cpu().numpy()
+  targets = targets.cpu().numpy()
   thresholds = []
   for c in range(num_classes):
-    positive_probs = np.sort(probs[targets[:, c] == 1, c])   # scores of the real cases, low -> high
+    # the model's scores for the images that really have finding c, sorted low -> high
+    positive_probs = []
+    for i in range(len(targets)):
+      if targets[i, c] == 1:
+        positive_probs.append(probs[i, c])
+    positive_probs = np.sort(positive_probs)
     if len(positive_probs) == 0:
       thresholds.append(0.5)
       continue
@@ -95,12 +116,18 @@ def pick_thresholds(probs, targets):
 
 def metrics(probs, targets, thresholds):
   # one row per finding: AUROC (threshold-free) + accuracy/precision/recall/f1 at the chosen threshold
-  probs, targets = probs.cpu().numpy(), targets.cpu().numpy()
+  probs = probs.cpu().numpy()
+  targets = targets.cpu().numpy()
   rows = []
   for c in range(num_classes):
-    y, p = targets[:, c], probs[:, c]
+    y = targets[:, c]                          # truth for finding c (1 or 0 per image)
+    p = probs[:, c]                            # the model's chance for finding c
     predicted = (p >= thresholds[c]).astype(int)
-    auroc = roc_auc_score(y, p) if 0 < y.sum() < len(y) else float("nan")   # needs both kinds
+    # AUROC needs both kinds (some images with the finding and some without)
+    if 0 < y.sum() < len(y):
+      auroc = roc_auc_score(y, p)
+    else:
+      auroc = float("nan")
     rows.append([class_names[c], round(thresholds[c], 3), round(auroc, 3),
                  round(recall_score(y, predicted, zero_division=0), 3),
                  round(precision_score(y, predicted, zero_division=0), 3),
@@ -132,13 +159,16 @@ def predict(split, outputs, thresholds):
 def evaluate(name, val_outputs, val_targets, test_outputs, test_targets):
   # thresholds from val, then score val and test with them. name = file prefix ("" or "dino_")
   thresholds = pick_thresholds(torch.sigmoid(val_outputs), val_targets)
-  with open(f"{name}thresholds.json", "w") as f:
-    json.dump(dict(zip(class_names, thresholds)), f, indent=2)
+  thresholds_by_name = {}                    # e.g. {"fracture": 0.084, "normal": 0.755}
+  for number in range(num_classes):
+    thresholds_by_name[class_names[number]] = thresholds[number]
+  with open(f"src/models/weights/{name}thresholds.json", "w") as f:
+    json.dump(thresholds_by_name, f, indent=2)
 
   for split, outputs, targets in [("val", val_outputs, val_targets), ("test", test_outputs, test_targets)]:
-    predict(split, outputs, thresholds).to_csv(f"{name}{split}_predictions.csv", index=False)
+    predict(split, outputs, thresholds).to_csv(f"metrics/{name}{split}_predictions.csv", index=False)
     scores = metrics(torch.sigmoid(outputs), targets, thresholds)
-    scores.to_csv(f"{name}{split}_metrics.csv", index=False)
+    scores.to_csv(f"metrics/{name}{split}_metrics.csv", index=False)
     print(f"\n{split} metrics:\n{scores.to_string(index=False)}")
 
 
@@ -148,7 +178,7 @@ if __name__ == "__main__":
   val_cnn, val_dino, val_targets = load("val")
   test_cnn, test_dino, test_targets = load("test")
 
-  # hands out the train ModelWeights in shuffled batches: (cnn, dino, targets) per batch
+  # hands out the train data in shuffled batches: (cnn, dino, targets) per batch
   train_loader = DataLoader(TensorDataset(train_cnn, train_dino, train_targets),
                             batch_size=BATCH_SIZE, shuffle=True)
 
@@ -183,18 +213,18 @@ if __name__ == "__main__":
 
     if val_loss < best_val_loss:                # keep the epoch that did best on val
       best_val_loss = val_loss
-      torch.save(model.state_dict(), "head.pt")
+      torch.save(model.state_dict(), "src/models/weights/head.pt")
     print(f'Epoch [{epoch + 1}/{EPOCHS}], Train loss: {train_loss:.4f}, Val loss: {val_loss:.4f}, lr: {scheduler.get_last_lr()[0]:.6f}')
 
-  print("best val loss:", best_val_loss, "saved to head.pt")
+  print("best val loss:", best_val_loss, "saved to models/head.pt")
 
   # lists -> tables, saved so you can plot them later
   trainHistory = pd.DataFrame(trainHistory, columns=["epoch", "train_loss", "val_loss"])
-  trainHistory.to_csv("trainHistory.csv", index=False)
+  trainHistory.to_csv("metrics/trainHistory.csv", index=False)
 
 
   # ---------------- Predict on val and test with the best saved head ----------------
-  model.load_state_dict(torch.load("head.pt"))
+  model.load_state_dict(torch.load("src/models/weights/head.pt"))
   model.eval()
 
   with torch.no_grad():                         # no gradients needed for predicting

@@ -1,11 +1,18 @@
+import os
 import random
 import torch
 import pandas as pd
 import numpy as np
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 import FractureLocator as fl   # same settings, model and scores as FractureLocator.py
 
 # Honest score for FractureLocator. val/test only have ~10 animals each, so one split is very noisy.
-# 5-fold cross-validation BY ANIMAL on all ModelWeights (train + val + test together):
+# 5-fold cross-validation BY ANIMAL on all data (train + val + test together):
 #   split the animals into 5 groups -> train on 4 groups, score the 5th -> repeat 5 times.
 #   every animal is scored once, always by a head that never saw that animal.
 # Mirrored copies are only used for training; scores are measured on the real images.
@@ -43,7 +50,13 @@ for i, animal in enumerate(fracture_animals):
     fold_of[animal] = i % FOLDS
 for i, animal in enumerate(normal_animals):
     fold_of[animal] = i % FOLDS
-data["fold"] = data["animal"].map(fold_of)   # other-source animals get no fold (NaN) -> always training
+folds = []
+for animal in data["animal"]:
+    if animal in fold_of:
+        folds.append(fold_of[animal])
+    else:
+        folds.append(float("nan"))           # other-source animals get no fold -> always training
+data["fold"] = folds
 
 all_scores = torch.zeros(masks.shape)        # square scores of every image, from the fold where it was held out
 scored = np.zeros(len(data), dtype=bool)
@@ -71,5 +84,5 @@ cv_data = data.iloc[rows].reset_index(drop=True)
 probs = torch.sigmoid(fl.image_scores(all_scores[rows]))
 threshold = fl.pick_threshold(probs, labels[rows])
 results, scores = fl.evaluate(cv_data, masks[rows], labels[rows], all_scores[rows], threshold)
-results.to_csv("fracture_cv_predictions.csv", index=False)
+results.to_csv("metrics/fracture_cv_predictions.csv", index=False)
 print("\ncross-validated (all animals):", scores)

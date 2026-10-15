@@ -1,3 +1,4 @@
+import os
 """Image augmentation and a PyTorch Dataset for the CSVs written by preprocess.py.
 
 `augment()` is what preprocess.py uses to write augmented copies of the train
@@ -5,8 +6,8 @@ images to disk. `train_transforms()` can additionally augment on the fly during
 training (a different random version every epoch).
 
     from augmentation import XrayDataset, train_transforms, eval_transforms
-    train_ds = XrayDataset("ModelWeights/processed/train.csv", num_classes, train_transforms())
-    val_ds   = XrayDataset("ModelWeights/processed/val.csv",   num_classes, eval_transforms())
+    train_ds = XrayDataset("data/PreprocessedData/train.csv", num_classes, train_transforms())
+    val_ds   = XrayDataset("data/PreprocessedData/val.csv",   num_classes, eval_transforms())
 
 Preview what the augmentation does to one image: set the path at the bottom and run
     python augmentation.py
@@ -16,6 +17,12 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import v2 as T
+# ---------- always work from the project folder (X-ray-ml) ----------
+# This file lives in src/<folder>/, but all paths below ("data/...", "src/models/weights/...") start at the
+# project folder. These lines go there first, so it works from PyCharm's Run button AND from a terminal.
+PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # up 3: file -> src/<folder> -> src -> project
+os.chdir(PROJECT_FOLDER)
+
 
 # ImageNet stats; swap for the model's own processor values if they differ.
 MEAN = (0.485, 0.456, 0.406)
@@ -63,7 +70,8 @@ class XrayDataset(Dataset):
         self.paths = df[image_col].tolist()
         self.targets = torch.zeros(len(df), num_classes)
         for row, ids in enumerate(df["label_ids"]):
-            self.targets[row, [int(i) for i in ids.split("|")]] = 1.0
+            for number in ids.split("|"):          # "1|5" -> labels 1 and 5
+                self.targets[row, int(number)] = 1.0
         self.transform = transform
 
     def __len__(self):
@@ -78,7 +86,7 @@ class XrayDataset(Dataset):
 
 if __name__ == "__main__":
     # preview: save 8 augmented versions of one image side by side
-    img = Image.open("ModelWeights/raw/example.png").convert("RGB")
+    img = Image.open("data/raw/example.png").convert("RGB")
     tf = train_transforms(224)
     mean, std = torch.tensor(MEAN).view(3, 1, 1), torch.tensor(STD).view(3, 1, 1)
     grid = Image.new("RGB", (224 * 8, 224))
