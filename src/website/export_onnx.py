@@ -29,7 +29,7 @@ import FractureLocator as fl     # patch head (fracture_head.pt), find_box, box_
 # ONNX = a standard file format for neural networks. PyTorch writes it, and "onnxruntime" runs it
 # in Python, C++, phones... and in the browser (JavaScript).
 #
-# Three files go into web_model/:
+# Three files go into src/models/weights/onnx/:
 #   cnn.onnx    ConvNeXt  : picture [1, 3, 384, 384] (0-1)  -> cnn vector [1, 1024]
 #   dino.onnx   DINOv2    : picture [1, 3, 448, 448] (0-1)  -> dino vector [1, 1536] + patches [1, 32, 32, 768]
 #   heads.onnx  both heads: vectors + dropout masks         -> CNN+DINO probability, patch-head probability, heatmap
@@ -40,7 +40,7 @@ import FractureLocator as fl     # patch head (fracture_head.pt), find_box, box_
 #
 #   python src/website/export_onnx.py
 
-OUT = "src/website/web_model"
+OUT = "src/models/weights/onnx"   # plain files: encrypt_models.py locks them for the website
 PASSES = 5                # Monte Carlo dropout passes per head (same as vote.py / API.py)
 DROPOUT_HEAD = 0.3        # main.py Head: nn.Dropout(0.3)
 DROPOUT_PATCH = 0.2       # FractureLocator PatchHead: nn.Dropout2d(0.2)

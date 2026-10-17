@@ -17,8 +17,9 @@ X-ray-ml/
 │   ├── models/          DINO.py (frozen DINOv2 -> saved features), main.py (CNN+DINO head), FractureLocator.py (patch head + box), vote.py,
 │   │   │                cross_validate.py, Xray_Or_Not.py + gate_extra.py + gate_challenge.py (X-ray gate),
 │   │   │                export_gate_onnx.py
-│   │   └── weights/     head.pt, fracture_head.pt, gate_head.pt, thresholds.json (trained models)
-│   └── website/         export_onnx.py, web_model/ (radiant.js, index.html, .onnx models: runs in the browser)
+│   │   └── weights/     head.pt, fracture_head.pt, gate_head.pt, thresholds.json (trained models),
+│   │                    onnx/ (the browser versions), model_key.txt (the encryption key, never in git)
+│   └── website/         export_onnx.py (models -> .onnx), encrypt_models.py (.onnx -> locked files for the website)
 ├── data/                raw/, PreprocessedData/, features/, views.csv, gate photos, crops, web pictures, human_data/
 ├── metrics/             every result: csv scores and predictions, roc_*.png, heatmaps_*/, boxes_*/, gate_challenge/
 └── docs/                API_GUIDE.md, WEB_GUIDE.md, HOW_THE_BOX_WORKS.md
@@ -279,6 +280,19 @@ So we score **inside each view** (limb close-ups vs body views). There, "which v
 ### 5.9 Cross-validation
 Instead of one train/val/test split, split the **animals** into 5 groups. Train on 4 and score the 5th,
 5 times, so every animal is scored once by a model that never saw it. Much less luck than one small test set.
+
+### 5.10 The rules behind the code (the code comments, in short)
+- **Run from anywhere.** Every script first moves to the project folder, so `data/...` paths work from PyCharm or a terminal.
+- **Backbones are frozen.** ConvNeXt, DINOv2 and ResNet18 never change; only the small heads learn.
+- **Never cut off a fracture.** Images are resized whole (no center crop), at a size bigger than usual (448 for DINO) so small breaks don't vanish.
+- **Test only on animals the model never saw.** Splits and cross-validation go by animal; augmented and mirrored copies are for training only; X-rays from other scanners go to train only.
+- **No shortcuts.** Fracture/normal are weighted 50/50 inside every view and scored per view, so the model can't win by guessing "limb or body".
+- **Rare things count more.** Fractures (pos_weight) and fracture squares (30x) are weighted up so the model doesn't ignore them.
+- **Thresholds come from val, never test**, set to catch 90% of fractures, because missing a fracture is worse than a false alarm (that's also why a 5-5 vote counts as fracture).
+- **Keep the best epoch, not the last** (best val loss for main.py, best per-view AUROC for the patch head).
+- **One clear spot is enough.** An X-ray's score is the average of its 8 hottest squares; the box grows from the hottest square.
+- **Same answers everywhere.** The browser model is checked against PyTorch; DINO is stored 16-bit (8-bit broke the fine per-square detail).
+- **The gate is balanced** (same number of X-rays and non-X-rays, half the photos gray) so "gray" alone can't mean "X-ray", and it's tested on pictures it never saw.
 
 ---
 
@@ -619,5 +633,22 @@ Final test scores (836 pictures): accuracy 0.999, precision 0.998, recall 1.000.
 
 ## 14. Credits and licenses
 
+**This project (code, trained weights, ONNX and encrypted model files):** Copyright (c) 2026 Patrick Kim.
+**All rights reserved.** You may not copy, redistribute, decrypt, extract, reverse-engineer or reuse the trained
+weights or model files, or train models from their outputs, without written permission. The website's own code
+(the X-ray.web repo) is MIT licensed; the model files it loads are **not** covered by that MIT license.
+
+**Things this project is built on (their licenses still apply):**
 - **Fratura de membro** dataset by RodrigoDoutorado on Roboflow Universe, **CC BY 4.0** (credit required).
-- **DINOv2** (Meta), Apache-2.0. **ConvNeXt-V2** via timm.
+- **DINOv2** (Meta), Apache-2.0.
+- **ConvNeXt-V2** (Meta) via timm: the pretrained ImageNet weights are **CC BY-NC 4.0 = non-commercial only**.
+  Because `cnn.onnx` contains them, the whole model can only be used **non-commercially** unless ConvNeXt is
+  swapped for a backbone with a commercial-friendly license.
+- **ResNet18** (torchvision, the X-ray gate), BSD-3-Clause.
+- **Caltech-256** and **Places365** photos: used only to train the gate, not shipped.
+
+**Why the model files are encrypted:** the website runs the model in the visitor's browser, so the browser has to
+download it. `encrypt_models.py` locks every file with **AES-256-GCM** and `radiant.js` unlocks it in memory with the
+browser's Web Crypto. Saving the downloaded files gives you nothing usable. Honest limit: the key has to be inside
+`radiant.js`, so a skilled person reading the JavaScript could still recover it. The encryption stops casual copying;
+the license above is what makes copying not allowed.

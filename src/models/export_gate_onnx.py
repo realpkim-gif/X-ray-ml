@@ -17,7 +17,7 @@ os.chdir(PROJECT_FOLDER)
 from Xray_Or_Not import resnet, load_head, xray_chance, device   # the frozen ResNet18 and the trained gate head
 
 # ======================================================================================
-# export_gate_onnx.py - the "X-ray or not" gate as ONE file the browser can run: website/web_model/gate.onnx
+# export_gate_onnx.py - the "X-ray or not" gate as ONE file the browser can run: src/models/weights/onnx/gate.onnx
 #
 #   picture [1, 3, 224, 224] (numbers 0-1)  ->  normalise  ->  ResNet18  ->  gate head  ->  X-ray chance (0-1)
 #
@@ -27,7 +27,7 @@ from Xray_Or_Not import resnet, load_head, xray_chance, device   # the frozen Re
 #   python src/models/export_gate_onnx.py
 # ======================================================================================
 
-OUT = "src/website/web_model"
+OUT = "src/models/weights/onnx"
 GATE_THRESHOLD = 0.5          # X-ray chance below this = "not an X-ray" (same as Xray_Or_Not.py)
 MEAN = torch.tensor([0.485, 0.456, 0.406]).reshape(1, 3, 1, 1)   # ImageNet stats, what ResNet18 was trained with
 STD = torch.tensor([0.229, 0.224, 0.225]).reshape(1, 3, 1, 1)
