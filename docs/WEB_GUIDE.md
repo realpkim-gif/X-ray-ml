@@ -18,7 +18,7 @@ Down side: the first visit downloads ~280 MB, and each X-ray takes ~10-25 second
 
 ---
 
-## What's in `src/website/web_model/`
+## The files
 
 | File | Made by | What it is |
 |---|---|---|
@@ -27,8 +27,10 @@ Down side: the first visit downloads ~280 MB, and each X-ray takes ~10-25 second
 | `gate.onnx` (23 MB) | src/models/export_gate_onnx.py | the "X-ray or not" gate (ResNet18 + head): picture 224x224 -> X-ray chance. Runs first |
 | `heads.onnx` (8 MB) | export_onnx.py | both trained heads, 5 Monte Carlo passes at once -> votes + heatmaps |
 | `config.json` | export_onnx.py | the two vote thresholds, number of passes, dropout keep chances, box setting |
-| `radiant.js` | (written by hand) | the whole pipeline in JavaScript |
-| `index.html` | (written by hand) | a test page that uses radiant.js |
+
+These plain files stay in `src/models/weights/onnx/` and are **never uploaded**. `src/website/encrypt_models.py`
+locks them and writes `part0-0.bin` (config) ... `part4-0.bin` (heads), in 45 MB pieces, into the website repo's `model/` folder.
+`radiant.js` and the page that uses it (`Analyze.dc.html`) live in the **X-ray.web** repo.
 
 **ONNX** is a standard file format for neural networks: PyTorch writes it, and onnxruntime runs it in Python,
 on phones, or in the browser.
@@ -51,16 +53,34 @@ on phones, or in the browser.
      back into 32-bit when the model loads, so the maths is exact.
 5. **Check** against PyTorch on all val/test X-rays, resizing pictures the way the browser does.
 
-Run it again whenever you retrain a head:
+Run it again whenever you retrain a head, then lock the new files:
 ```bash
 python src/website/export_onnx.py
+python src/website/encrypt_models.py
 ```
+
+---
+
+## Encryption (`encrypt_models.py`)
+
+The browser has to download the model to run it, so plain `.onnx` files could just be saved and reused.
+So every file is encrypted with **AES-256-GCM** (a strong, standard encryption; GCM also detects changed files):
+
+1. The key: 32 random bytes, made once and kept in `src/models/weights/model_key.txt` (in `.gitignore`).
+2. Each file: 12 new random bytes (the IV) + the encrypted bytes -> cut into 45 MB pieces `part0-0.bin` ... `part4-0.bin`.
+3. The key is written into `radiant.js` as two scrambled halves (`KEY_A` xor `KEY_B`).
+4. In the browser, `radiant.js` downloads the pieces of each file, glues them together, unlocks it in memory with `crypto.subtle.decrypt`
+   (built into every browser), and hands the bytes straight to onnxruntime. The unlocked model is never saved.
+
+**Honest limit:** the browser needs the key to unlock the files, so the key is in the public JavaScript.
+Someone skilled could find it and decrypt the files. This stops casual "save the file" copying; the license in
+README section 14 is what makes copying not allowed.
 
 ---
 
 ## How `radiant.js` works
 
-`Radiant.load(folder)` loads the 3 models + config once.
+`Radiant.load(folder)` downloads and unlocks the 4 models + config once.
 `Radiant.analyse(file, show)` does, for one X-ray:
 
 1. Draw the X-ray on a 1024x1024 `<canvas>` (stretched, like the training X-rays).
@@ -73,7 +93,7 @@ python src/website/export_onnx.py
    (same rule as `FractureLocator.find_box`).
 6. `Radiant.redraw(result, show)` paints the heatmap and/or box on the **original** picture and gives a PNG data URL.
 
-The result has the same shape as API.py's JSON:
+The result looks like this:
 ```javascript
 { answer: "fracture", confidence: 1, fracture_votes: "10 of 10",
   box: {x1: 0.5313, y1: 0.3438, x2: 0.875, y2: 0.625},   // 0-1 fractions, null for "normal"
@@ -86,14 +106,15 @@ The result has the same shape as API.py's JSON:
 
 ## Try it on your laptop
 
-From the **project** folder:
+From the **X-ray.web** folder:
 ```bash
-python -m http.server 8080
+python -m http.server 8090
 ```
-Then open http://localhost:8080/website/web_model/index.html. (Double-clicking index.html won't work: browsers block
-loading the model files from `file://`.)
+Then open http://localhost:8090/Analyze.dc.html. On localhost the page loads the models from `./model/`.
+(Double-clicking the page won't work: browsers block loading the model files from `file://`.)
 
-**Tested in the browser:** the fracture X-ray gave 10 of 10 votes and the same box as PyTorch; the normal one 0 of 10.
+**Tested in the browser** (encrypted files, Analyze page): a fracture X-ray gave 10 of 10 votes and the same box as
+PyTorch in ~12 s; a photo was stopped by the gate in 0.1 s.
 
 **Checked on all val/test X-rays** (export_onnx.py step 5, browser-style resizing, no dropout):
 
@@ -108,35 +129,16 @@ loading the model files from `file://`.)
 
 ## Putting it online
 
-The model files are too big for GitHub (100 MB per file limit), so:
+Everything is in the X-ray.web repo on GitHub Pages: the page, `radiant.js`, and the encrypted model in `model/`.
+GitHub refuses single files over 100 MB, so `encrypt_models.py` (Python) cuts every encrypted file into pieces of
+45 MB or less: `part3.bin` (DINO, 174 MB) becomes `part3-0.bin` ... `part3-3.bin`, 10 pieces in total. It writes how
+many pieces each file has into `radiant.js` (`PIECES = [1, 1, 3, 4, 1]`).
+In the browser, `fetchAndDecrypt` in `radiant.js` (JavaScript) downloads the pieces, glues them back together
+with `new Blob(pieces)`, then decrypts. See the X-ray.web README for the code.
 
-**1. Host the model on your Static Hugging Face Space**
-- Space -> **Files** -> **+ Contribute** -> **Upload files**: drag in everything inside `src/website/web_model/`, then **Commit**.
-  Hugging Face stores the big `.onnx` files with "LFS" (large file storage) automatically.
-- The Space then *is* a working page: `https://<your-username>-<space-name>.static.hf.space`
-- Each file also has a direct download address:
-  `https://huggingface.co/spaces/<your-username>/<space-name>/resolve/main/cnn.onnx`
-
-**2. Use it from your GitHub Pages website**: in the Analyze page:
-```html
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
-<script src="radiant.js"></script>   <!-- copy radiant.js into the website repo -->
-<script>
-  // the models come from the Hugging Face Space, the page from GitHub Pages
-  const MODEL = "https://huggingface.co/spaces/<your-username>/<space-name>/resolve/main/";
-  Radiant.load(MODEL).then(() => { /* enable the Analyze button */ });
-
-  async function onAnalyze(file, show) {
-    const result = await Radiant.analyse(file, show);          // "box" | "heatmap" | "both"
-    document.querySelector("#result-image").src = result.image;
-    document.querySelector("#result-text").textContent =
-      `${result.answer} (${Math.round(result.confidence * 100)}% confident). ${result.disclaimer}`;
-  }
-</script>
-```
-Look at `src/website/web_model/index.html` for a complete working example (loading message, button, show dropdown).
-
-**After retraining:** run `python src/website/export_onnx.py`, then upload the new `.onnx` files and `config.json` to the Space.
+**After retraining:** `export_onnx.py` (and/or `export_gate_onnx.py`), then `encrypt_models.py`, then commit and
+push `model/` + `radiant.js` in X-ray.web (radiant.js has the key and piece counts; the key stays the same while
+`model_key.txt` exists). Each retrain adds ~300 MB to the website repo's history.
 
 ---
 

@@ -24,3 +24,6 @@ metrics/gate_challenge/
 
 # temporary logs
 *_log.txt
+
+# the key that locks the browser model files
+model_key.txt
