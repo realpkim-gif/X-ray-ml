@@ -1,6 +1,6 @@
 # X-ray ML: the fracture detector behind Radiant
 
-Private ML code for **Radiant**, a web app that looks at dog and cat X-rays and flags problems.
+Public ML code for **Radiant**, a web app that looks at dog and cat X-rays and flags problems.
 This README explains **every part of the pipeline**, from raw images to the final answer, in plain language.
 If a word is new, check the [Glossary](#13-glossary) at the bottom.
 
