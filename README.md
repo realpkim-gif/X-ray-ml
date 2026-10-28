@@ -4,6 +4,8 @@ Public ML code for **Radiant**, a web app that looks at dog and cat X-rays and f
 This README explains **every part of the pipeline**, from raw images to the final answer, in plain language.
 If a word is new, check the [Glossary](#13-glossary) at the bottom.
 
+Here is the link to Radiant: [https://realpkim-gif.github.io/X-ray.web/Radiant.dc.html](url)
+
 ---
 
 ## Project layout
